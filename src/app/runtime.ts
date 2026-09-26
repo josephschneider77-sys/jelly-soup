@@ -59,6 +59,7 @@ export async function startGame(stage: (s: string) => void, fail: (e: unknown) =
   const spongeCenter = new THREE.Vector3();
   const cupCenter = new THREE.Vector3();
   const spongeOffset = new THREE.Vector3();
+  const wandCenter = new THREE.Vector3();
   let roamX = TUB.halfX;
   const roam = (inset: number) => Math.min(TUB.halfX - .02, Math.max(.05, roamX - inset));
 
@@ -83,12 +84,13 @@ export async function startGame(stage: (s: string) => void, fail: (e: unknown) =
   // Space splashes the water. Bath Time has no rideable toy to climb off.
   input.onTapGround = () => { ripple = Math.min(1, ripple + .25); };
   const syncCenters = () => {
-    bath.faucet.getWorldPosition(faucetCenter);
-    faucet.x = faucetCenter.x; faucet.z = faucetCenter.z + .09;
+    bath.faucetTip(faucetCenter);
+    faucet.x = faucetCenter.x; faucet.z = faucetCenter.z;
     bath.ducks.forEach((duck, i) => duckCenters[i].set(duck.x, level + .02, duck.z));
     bath.bubbles.forEach((bubble, i) => bubbleCenters[i].set(bubble.x, bubble.y, bubble.z));
     spongeCenter.set(bath.sponge.group.position.x, bath.sponge.group.position.y, bath.sponge.group.position.z);
     bath.cup.getWorldPosition(cupCenter);
+    bath.wandRing.getWorldPosition(wandCenter);
   };
   syncCenters();
   input.toyTaps.push({
@@ -151,6 +153,13 @@ export async function startGame(stage: (s: string) => void, fail: (e: unknown) =
       pourOn(body, body.center.x, body.center.z);
       bath.pour();
       splash(.7);
+      giggle();
+    },
+  });
+  input.toyTaps.push({
+    center: wandCenter, radius: .06, object: bath.wand, label: 'wand', use: () => {
+      note('wand');
+      bath.blow();
       giggle();
     },
   });

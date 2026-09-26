@@ -82,11 +82,12 @@ assert(pushed.center.z<z0+.005,`faucet stream does not drive the jelly into the 
     ['jelly',0,.12,0],
     ['cup',CUP_HOME.x,.16,CUP_HOME.z],
     ['sponge',SPONGE_HOME.x,.15,SPONGE_HOME.z],
-    ['faucet',0,.28,-.16],
+    ['faucet',-.01,.25,-.2],
+    ['spout',0,.18,-.07],
     ['duck-left',DUCK_HOME[0][0],.13,DUCK_HOME[0][1]],
     ['duck-right',DUCK_HOME[1][0],.13,DUCK_HOME[1][1]],
     ['duck-back',DUCK_HOME[2][0],.13,DUCK_HOME[2][1]],
-    ['wand',.05,.2,-.11],
+    ['wand',-.08,.33,-.17],
   ];
   const wide=bathFrame(1280/800);
   assert(Math.abs(wide.fov-36.9)<1,'a wide screen keeps the three-quarter field of view');
@@ -130,14 +131,19 @@ assert(pushed.center.z<z0+.005,`faucet stream does not drive the jelly into the 
   assert.match(runtime,/captureHome\(\)/);
   assert.match(bath,/cup\.rotation\.z = -tilt/);
   assert.match(bath,/cupStream\.visible/);
-  assert.match(bath,/speed: \.008/);
+  assert.match(bath,/speed: \.01/);
   assert.doesNotMatch(input,/follow\.lerp/);
   assert.match(input,/controls\.target\.copy\(this\.anchor\)/);
   assert.match(runtime,/containInTub\(body, roamX\)/);
   assert.match(input,/padded:false/);
   assert.match(runtime,/yieldsToToys: true/);
   assert.match(bath,/opacityNode/);
-  assert.match(bath,/float\(\.45\)/);
+  assert.match(bath,/float\(\.7\)/);
+  assert.match(bath,/handle\.rotation\.y/);
+  assert.match(bath,/splashRing\.visible = on/);
+  assert.match(runtime,/faucetTip/);
+  assert.match(runtime,/label: 'wand'/);
+  assert.match(runtime,/bath\.blow\(\)/);
 }
 {
   for(const [w,h] of [[390,844],[1024,768],[1280,800]]){
