@@ -15,9 +15,9 @@ export class Baby {
   constructor(body:SoftBody) {
     this.body=body;
     const material=new THREE.MeshPhysicalNodeMaterial({
-      color:JELLY_FLAVORS[DEFAULT_JELLY_FLAVOR].surface,roughness:.085,metalness:0,transmission:1,thickness:.035,
-      ior:1.35,dispersion:.025,attenuationDistance:.035,
-      clearcoat:.42,clearcoatRoughness:.05,envMapIntensity:1.05,
+      color:JELLY_FLAVORS[DEFAULT_JELLY_FLAVOR].surface,roughness:.02,metalness:0,transmission:1,thickness:.035,
+      ior:1.34,dispersion:.03,attenuationDistance:.035,specularIntensity:1.55,
+      clearcoat:1,clearcoatRoughness:.015,envMapIntensity:1.35,
       transparent:false,side:THREE.FrontSide,flatShading:false,
     });
     this.jellyMaterial=material;
@@ -31,7 +31,7 @@ export class Baby {
   }
   setReflectionMap(texture:THREE.Texture|null,intensity:number) {
     if(this.jellyMaterial.envMap!==texture){this.jellyMaterial.envMap=texture;this.jellyMaterial.needsUpdate=true;}
-    this.jellyMaterial.envMapIntensity=intensity;
+    this.jellyMaterial.envMapIntensity=intensity*1.45;
   }
   setFlavor(flavor:JellyFlavorName) {
     const look=JELLY_FLAVORS[flavor],distance=this.jellyMaterial.attenuationDistance;
@@ -42,6 +42,7 @@ export class Baby {
     );
   }
   update(dt=0,playing=false,sleeping=false,crying=false) { this.face.update(dt,playing,sleeping,crying); }
+  cheer() { this.face.cheer(); }
   resetFace() { this.face.reset(); }
   dispose() {
     this.group.traverse(object=>{

@@ -59,8 +59,12 @@ export class SwingPhysics {
   toggle() {
     if(this.riding){this.leave();return true;}
     if(!this.nearby)return false;
+    return this.mount();
+  }
+  /** Sit the jelly on the seat even when it is across the table. */
+  mount() {
+    if(this.riding)return false;
     this.riding=true;this.elapsed=0;
-    // Board at the current seat position, including an empty swing still coasting.
     const c=Math.cos(this.angle),s=Math.sin(this.angle);
     for(let i=0;i<this.body.mass.length;i++) {
       const j=i*3;this.riderTarget(i,this.target,c,s);
@@ -70,6 +74,13 @@ export class SwingPhysics {
       this.body.velocity[j+2]=-this.speed*(this.target.y-SWING.height);
     }
     this.body.previous.set(this.body.x);this.body.wake();this.body.updateCenter();this.body.surfaceDirty=true;
+    return true;
+  }
+  /** A second tap pushes the swing instead of requiring a precise dismount. */
+  boost() {
+    if(!this.riding)return false;
+    this.speed+=(Math.abs(this.speed)<.15?1:Math.sign(this.speed))*.65;
+    this.body.wake();
     return true;
   }
   leave() {

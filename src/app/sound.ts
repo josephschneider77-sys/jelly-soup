@@ -31,9 +31,10 @@ export class JellySound {
     let context:AudioContext|null=null;
     try {
       context=new Context();
-      const master=context.createGain();master.gain.value=this.muted?0:.62;
+      const master=context.createGain();master.gain.value=this.muted?0:.28;
       const compressor=context.createDynamicsCompressor();
-      compressor.threshold.value=-14;compressor.ratio.value=5;
+      compressor.threshold.value=-22;compressor.knee.value=18;compressor.ratio.value=3;
+      compressor.attack.value=.03;compressor.release.value=.28;
       master.connect(compressor).connect(context.destination);
       this.context=context;this.master=master;this.compressor=compressor;
       this.facilities=new FacilityAudio(context,master);
@@ -65,7 +66,7 @@ export class JellySound {
   toggle() {
     this.muted=!this.muted;
     if(this.muted)this.stopFacilities();
-    if(this.context&&this.master) this.master.gain.setTargetAtTime(this.muted?0:.62,this.context.currentTime,.025);
+    if(this.context&&this.master) this.master.gain.setTargetAtTime(this.muted?0:.28,this.context.currentTime,.04);
     return this.muted;
   }
   listen(camera:PerspectiveCamera) {
@@ -101,27 +102,47 @@ export class JellySound {
     const l=this.listener,dx=x-l.x,dy=y-l.y,dz=z-l.z,distance=Math.hypot(dx,dy,dz);
     this.tricycleRoll?.update(speed,distance,(dx*l.rightX+dz*l.rightZ)/Math.max(.12,distance));
   }
+  /** A short, quiet happy tone for taps. No noise transient. */
+  chirp() {
+    void this.unlock().then(()=>this.playChirp());
+  }
+  private playChirp() {
+    const ctx=this.context, out=this.master;
+    if(!ctx||!out||ctx.state==='closed'||this.muted)return;
+    const t=ctx.currentTime, osc=ctx.createOscillator(), gain=ctx.createGain();
+    osc.type='sine';
+    osc.frequency.setValueAtTime(392,t);
+    osc.frequency.exponentialRampToValueAtTime(588,t+.16);
+    gain.gain.setValueAtTime(0,t);
+    gain.gain.linearRampToValueAtTime(.07,t+.045);
+    gain.gain.exponentialRampToValueAtTime(.0001,t+.32);
+    osc.connect(gain).connect(out);osc.start(t);osc.stop(t+.34);
+    osc.onended=()=>{osc.disconnect();gain.disconnect();};
+  }
   contact(speed:number,foot:boolean) {
     const ctx=this.context, out=this.master;
     if(!ctx||!out||ctx.state==='closed'||this.muted) return;
-    const t=ctx.currentTime, landing=!foot, strength=Math.min(1,speed/(landing?.62:.8)),impactBoost=landing?1.45:1;
-    // Damped wet membrane modes, plus a brief filtered surface-contact transient.
-    const base=(foot?190:125)+Math.random()*18;
-    for(const [ratio,level,decay] of [[1,.28,.15],[1.63,.12,.095],[2.7,.045,.04]]) {
+    const t=ctx.currentTime, landing=!foot, strength=Math.min(1,speed/(landing?.62:.8)),impactBoost=landing?1.05:1;
+    // Soft membrane tones. The contact noise fades in so landings have no click.
+    const base=(foot?170:118)+Math.random()*12;
+    for(const [ratio,level,decay] of [[1,.16,.22],[1.5,.06,.14],[2.2,.02,.08]]) {
       const osc=ctx.createOscillator(), gain=ctx.createGain();
-      osc.type='sine'; osc.frequency.setValueAtTime(base*ratio*(1+strength*.9),t);
-      osc.frequency.exponentialRampToValueAtTime(base*ratio*.65,t+.07);
-      gain.gain.setValueAtTime(0,t);gain.gain.linearRampToValueAtTime(level*impactBoost*(.14+strength),t+.003);
+      osc.type='sine'; osc.frequency.setValueAtTime(base*ratio*(1+strength*.35),t);
+      osc.frequency.exponentialRampToValueAtTime(base*ratio*.82,t+.12);
+      gain.gain.setValueAtTime(0,t);gain.gain.linearRampToValueAtTime(level*impactBoost*(.1+strength*.6),t+.028);
       gain.gain.exponentialRampToValueAtTime(.0001,t+decay*(1+strength));
-      osc.connect(gain).connect(out);osc.start(t);osc.stop(t+.35);
+      osc.connect(gain).connect(out);osc.start(t);osc.stop(t+.4);
       osc.onended=()=>{osc.disconnect();gain.disconnect();};
     }
-    const buffer=ctx.createBuffer(1,Math.floor(ctx.sampleRate*.06),ctx.sampleRate);
+    const buffer=ctx.createBuffer(1,Math.floor(ctx.sampleRate*.08),ctx.sampleRate);
     const data=buffer.getChannelData(0);
-    for(let i=0;i<data.length;i++) data[i]=(Math.random()*2-1)*Math.exp(-i/(ctx.sampleRate*.009));
+    for(let i=0;i<data.length;i++) {
+      const fade=Math.min(1,i/(ctx.sampleRate*.012));
+      data[i]=(Math.random()*2-1)*Math.exp(-i/(ctx.sampleRate*.016))*fade;
+    }
     const noise=ctx.createBufferSource(), filter=ctx.createBiquadFilter(), gain=ctx.createGain();
-    noise.buffer=buffer;filter.type='bandpass';filter.frequency.value=foot?950:620;filter.Q.value=1.5;
-    gain.gain.value=.10*impactBoost*strength;noise.connect(filter).connect(gain).connect(out);noise.start(t);
+    noise.buffer=buffer;filter.type='lowpass';filter.frequency.value=foot?720:480;filter.Q.value=.7;
+    gain.gain.value=.03*impactBoost*strength;noise.connect(filter).connect(gain).connect(out);noise.start(t);
     noise.onended=()=>{noise.disconnect();filter.disconnect();gain.disconnect();};
   }
   dispose() {

@@ -124,7 +124,7 @@ export class FacilityAudio {
     }
     const source=ctx.createBufferSource(),gain=ctx.createGain(),panner=ctx.createStereoPanner();
     source.buffer=buffer;
-    const level=event.kind==='trampoline-land'?.38:event.kind==='swing-creak'?.28:.22;
+    const level=event.kind==='trampoline-land'?.2:event.kind==='swing-creak'?.15:.12;
     gain.gain.value=level*Math.max(0,Math.min(1,event.strength))/(1+(distance/.35)**2);
     panner.pan.value=Math.max(-.7,Math.min(.7,pan));
     source.connect(gain).connect(panner).connect(this.output);this.voices.add(source);

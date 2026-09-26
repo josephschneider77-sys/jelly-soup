@@ -37,6 +37,11 @@ export class TrampolinePhysics {
   toggle() {
     if(this.active){this.leave();return true;}
     if(!this.nearby)return false;
+    return this.mount();
+  }
+  /** Drop the jelly onto the bed from anywhere on the table. */
+  mount() {
+    if(this.active)return false;
     this.active=true;this.supported=true;this.elapsed=0;this.height=this.compression;this.speed=0;
     const b=this.body;
     for(let j=0;j<b.x.length;j+=3) {
@@ -45,6 +50,12 @@ export class TrampolinePhysics {
       b.x[j+2]=b.rest[j+2]+TRAMPOLINE.z;
     }
     b.previous.set(b.x);b.velocity.fill(0);b.wake();b.updateCenter();b.surfaceDirty=true;
+    return true;
+  }
+  boost() {
+    if(!this.active)return false;
+    for(let j=1;j<this.body.velocity.length;j+=3)this.body.velocity[j]+=.55;
+    this.body.wake();
     return true;
   }
   leave() {

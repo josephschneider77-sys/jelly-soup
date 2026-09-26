@@ -27,7 +27,7 @@ export class BabyFace {
     const eye=new THREE.MeshPhysicalNodeMaterial({color:'#142905',roughness:.13,clearcoat:1,clearcoatRoughness:.06});
     const mouth=new THREE.MeshPhysicalNodeMaterial({color:'#254508',roughness:.24,clearcoat:.6});
     const tongue=new THREE.MeshPhysicalNodeMaterial({color:'#b5d641',roughness:.24,clearcoat:.5});
-    const blush=new THREE.MeshPhysicalNodeMaterial({color:'#edab4f',roughness:.3,transparent:true,opacity:.30,depthWrite:false});
+    const blush=new THREE.MeshPhysicalNodeMaterial({color:'#ff8a9a',roughness:.22,transparent:true,opacity:.55,depthWrite:false});
     const add=(geometry:THREE.BufferGeometry,mat:THREE.Material,cx:number,cy:number,depth:number,kind:Feature)=>{
       const rest=new Float32Array(geometry.getAttribute('position').array);
       geometry.setAttribute('position',new THREE.BufferAttribute(new Float32Array(rest.length),3).setUsage(THREE.DynamicDrawUsage));
@@ -53,6 +53,7 @@ export class BabyFace {
     add(refinePatch(new THREE.ShapeGeometry(lip,24)),tongue,0,.0368,.00028,'tongue');
   }
   reset() { this.expression.reset();this.bubble.reset(); }
+  cheer() { this.expression.cheer(); }
   update(dt:number,playing=false,sleeping=false,crying=false) {
     this.expression.update(dt,this.body.grabs.length>0,playing,sleeping,crying);
     const {sob,laugh,blink,time,sleep}=this.expression;

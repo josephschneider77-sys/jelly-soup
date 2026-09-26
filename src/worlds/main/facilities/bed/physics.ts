@@ -31,6 +31,11 @@ export class BedPhysics {
   toggle(){
     if(this.active){this.leave();return true;}
     if(!this.nearby)return false;
+    return this.mount();
+  }
+  /** Tuck the jelly into bed from anywhere. A second call is the existing get-up. */
+  mount(){
+    if(this.active)return false;
     this.active=true;this.time=0;
     const b=this.body;
     for(let i=0;i<b.mass.length;i++){

@@ -171,7 +171,10 @@ export class SoccerPhysics {
   }
   private applyGoalieClearance(body:SoftBody,weights:Float64Array) {
     const strength=this.goalieClearance;if(strength<=.02||this.ball.z>-.95||this.ball.y>FIELD.y+GOAL.height+.06)return;
-    const desiredForward=.10+.15*strength,maxDelta=.08+.47*strength*strength*strength,delta=clamp(desiredForward-this.ballVelocity.z,0,maxDelta);if(delta<=1e-6)return;
+    // A soupier keeper absorbs a little of the contact, so the clearance aims
+    // slightly further upfield. The extra is small enough that the keeper still
+    // steps behind a trapped ball before the ball leaves the mouth.
+    const desiredForward=.118+.155*strength,maxDelta=.08+.47*strength*strength*strength,delta=clamp(desiredForward-this.ballVelocity.z,0,maxDelta);if(delta<=1e-6)return;
     const x=Math.sign(this.ball.x)*.14*strength,invLength=1/Math.hypot(x,1),dx=x*invLength,dz=invLength,impulse=BALL.mass*delta/dz;
     this.ballVelocity.x+=dx*impulse/BALL.mass;this.ballVelocity.z+=dz*impulse/BALL.mass;
     for(let id=0;id<weights.length;id++) {

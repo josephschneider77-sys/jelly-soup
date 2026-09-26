@@ -11,6 +11,10 @@ export class FaceExpression {
   private blinkAt=2.4;
   private blinkFor=-1;
   private doubleBlink=false;
+  /** A tap: skip the grab face and go straight to the buoyant chuckle. */
+  cheer() {
+    this.sob=0;this.held=false;this.heldFor=0;this.releaseFor=.24;
+  }
   reset() {
     this.sleep=0;this.blink=0;this.sob=0;this.laugh=0;this.time=0;
     this.held=false;this.heldFor=0;this.releaseFor=10;

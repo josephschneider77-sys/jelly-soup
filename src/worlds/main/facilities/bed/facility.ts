@@ -26,6 +26,8 @@ export class BedFacility implements Facility {
   get mobileAction(){return this.active?'Get up':'Go to Bed';}
   get interactionDistance(){return this.physics.nearby?Math.hypot(this.physics.body.center.x-BED.x,this.physics.body.center.z-BED.z):Infinity;}
   interact(){return this.physics.toggle();}
+  /** Tap the bed to climb in, or tap it again to get up. */
+  summon(){return this.physics.active?this.physics.toggle():this.physics.mount();}
   step(h:number){this.physics.step(h);this.lastStep=h;}
   private lastStep=1/240;
   afterStep(){

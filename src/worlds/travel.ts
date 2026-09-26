@@ -48,16 +48,21 @@ export class WorldTravel {
   onMove:()=>void=()=>{};
   onMenuOpen:()=>void=()=>{};
   onReady:()=>void|Promise<void>=()=>{};
-  constructor(scene:Scene,body:SoftBody,shadows:FacilityShadows,homeFacilities:Facilities,renderer:WebGPURenderer,camera:PerspectiveCamera,stage:(s:string)=>void,fail:(e:unknown)=>void,cameraOnlyOpticalHz=30) {
+  constructor(scene:Scene,body:SoftBody,shadows:FacilityShadows,homeFacilities:Facilities,renderer:WebGPURenderer,camera:PerspectiveCamera,stage:(s:string)=>void,fail:(e:unknown)=>void,cameraOnlyOpticalHz=30,toddlerPlay=false) {
     this.scene=scene;this.body=body;this.shadows=shadows;this.homeFacilities=homeFacilities;this.renderer=renderer;this.camera=camera;this.stage=stage;this.fail=fail;
     this.cameraOnlyOpticalHz=cameraOnlyOpticalHz;
     this.toyFacilities=new Facilities(body);this.toyFacilities.enabled=false;
     this.soccerFacilities=new Facilities(body);this.soccerFacilities.enabled=false;
     this.menu=new DestinationMenu(id=>{if(id===this.current){this.onMenuClose();return;}void this.travel(id).catch(this.fail);},()=>this.onMenuClose());
     this.homePortalFacility=new PortalFacility(body,'home-portal-housing',HOME_PORTAL.x,HOME_PORTAL.z,this.homePortal.collisionBoxes,()=>this.requestTravel(),()=>this.portalAvailable());
-    this.homeFacilities.add(this.homePortalFacility);
-    this.home.add(this.homePortal.group);this.toys.visible=this.soccerWorld.visible=false;scene.add(this.home,this.toys,this.soccerWorld);
-    this.shadows.add(this.homePortal.group,this.homePortal.lightingEnvelope);
+    // Soccer and tricycle driving stay in the project, but the playroom portal
+    // is omitted for toddlers so those worlds are not a reachable control.
+    if(!toddlerPlay) {
+      this.homeFacilities.add(this.homePortalFacility);
+      this.home.add(this.homePortal.group);
+      this.shadows.add(this.homePortal.group,this.homePortal.lightingEnvelope);
+    }
+    this.toys.visible=this.soccerWorld.visible=false;scene.add(this.home,this.toys,this.soccerWorld);
   }
   get facilities(){return this.inSoccer?this.soccerFacilities:this.inToys?this.toyFacilities:this.homeFacilities;}
   /** The active world's portal is a normal facility candidate for E/touch. */

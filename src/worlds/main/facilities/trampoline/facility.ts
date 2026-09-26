@@ -34,6 +34,13 @@ export class TrampolineFacility implements Facility {
     return this.physics.nearby?Math.hypot(this.physics.body.center.x-TRAMPOLINE.x,this.physics.body.center.z-TRAMPOLINE.z):Infinity;
   }
   interact() {const changed=this.physics.toggle();if(changed){this.laughStarted=false;this.audio.reset();}return changed;}
+  /** Tap the trampoline: hop on from anywhere, or bounce higher if already playing. */
+  summon() {
+    if(this.physics.active)return this.physics.boost();
+    const changed=this.physics.mount();
+    if(changed){this.laughStarted=false;this.audio.reset();}
+    return changed;
+  }
   step(h:number) {
     this.physics.step(h);
     this.audio.trampoline(h,this.physics.supported,this.physics.speed,this.physics.compression,this.active);
