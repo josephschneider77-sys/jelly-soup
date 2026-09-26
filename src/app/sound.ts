@@ -104,7 +104,7 @@ export class JellySound {
   }
   /** A short, quiet happy tone for taps. No noise transient. */
   chirp() {
-    void this.unlock().then(()=>this.playChirp());
+    void this.unlock().then(()=>this.playChirp()).catch(()=>{});
   }
   private playChirp() {
     const ctx=this.context, out=this.master;

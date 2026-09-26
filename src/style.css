@@ -53,7 +53,8 @@ kbd{font:9px/1 ui-sans-serif,sans-serif;display:inline-grid;place-items:center;w
 .touch-controls button.held{background:#b8cf8db3;transform:scale(.96)}
 .touch-controls .joystick.held{background:#f7f3e74d!important;transform:none}
 #loading{position:fixed;inset:0;z-index:10;display:grid;place-items:center;background:#fff4c8;transition:opacity .7s ease,visibility .7s;pointer-events:all}
-#loading.hidden{opacity:0;visibility:hidden;pointer-events:none}
+#loading.hidden,#loading.hidden *{pointer-events:none}
+#loading.hidden{opacity:0;visibility:hidden}
 .loading-card{text-align:center;width:min(440px,85vw)}
 .jelly-mark{width:88px;height:104px;border-radius:48% 48% 35% 35%;background:radial-gradient(ellipse at 30% 20%,#fff6c8 0,#b6e86a 46%,#7dce6a 100%);box-shadow:inset -8px -10px 16px #57752f20,0 12px 20px #68823c22;margin:0 auto;animation:breathe 1.6s ease-in-out infinite;transform-origin:center bottom}
 #retry{display:grid;place-items:center;width:80px;height:80px;min-width:64px;min-height:64px;margin:24px auto 0;padding:0;border:0;border-radius:50%;background:#ff7a59;color:#fff}
