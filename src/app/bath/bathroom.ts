@@ -1,6 +1,6 @@
 import * as THREE from 'three/webgpu';
 import { abs, color as tslColor, float, mix, normalView, positionLocal, positionViewDirection, pow, sin, sub, time, uniform, vec3 } from 'three/tsl';
-import { CUP_HOME, DUCK_HOME, FAUCET_HOME, SPONGE_HOME } from './layout.ts';
+import { BATH_HOME, BATH_PORTRAIT, CUP_HOME, DUCK_HOME, FAUCET_HOME, SPONGE_HOME } from './layout.ts';
 import { TUB } from './forces.ts';
 
 const pastel = (hex: string) => new THREE.MeshStandardMaterial({ color: hex, roughness: .72, metalness: 0 });
@@ -61,6 +61,7 @@ export class Bathroom {
   private handleAngle = 0;
   private wave = 0;
   private wandLean = 0;
+  private wandYaw = 0;
   private wandRoll = 0;
   private pourLeft = 0;
   private roamX = TUB.halfX;
@@ -123,7 +124,7 @@ export class Bathroom {
     this.cupStream.visible = false;
     this.wave = 0;
     this.wand.rotation.x = this.wandLean;
-    this.wand.rotation.y = -.6;
+    this.wand.rotation.y = this.wandYaw;
     this.wand.rotation.z = this.wandRoll;
     for (const bubble of this.bubbles) {
       if (bubble.burst) this.pop(bubble);
@@ -378,6 +379,7 @@ export class Bathroom {
       new THREE.RingGeometry(.02, .045, 18),
       new THREE.MeshBasicMaterial({ color: '#e8f8ff', transparent: true, opacity: .75, side: THREE.DoubleSide, depthWrite: false }),
     );
+    mesh.name = 'faucet-splash';
     mesh.rotation.x = -Math.PI / 2;
     mesh.visible = false;
     mesh.renderOrder = 3;
@@ -448,7 +450,7 @@ export class Bathroom {
   }
   private makeCup() {
     const cup = new THREE.Group();
-    const mat = glossy('#3dbe8c', .32);
+    const mat = glossy('#00c47a', .3);
     const wall = new THREE.Mesh(new THREE.CylinderGeometry(.03, .026, .05, 14, 1, true), mat);
     const bottom = new THREE.Mesh(new THREE.CircleGeometry(.025, 12), mat);
     bottom.rotation.x = -Math.PI / 2; bottom.position.y = -.024;
@@ -473,27 +475,58 @@ export class Bathroom {
   }
   private makeWand() {
     const wand = new THREE.Group();
-    const handle = new THREE.Mesh(new THREE.CylinderGeometry(.009, .011, .1, 12), glossy('#ff7ab8', .35));
-    handle.position.y = .02;
+    const ringR = .034;
+    const handle = new THREE.Mesh(new THREE.CylinderGeometry(.01, .012, .08, 12), glossy('#ff7ab8', .35));
+    handle.position.y = .012;
     const grip = new THREE.Mesh(new THREE.CylinderGeometry(.013, .013, .022, 12), glossy('#ffe14a', .4));
     grip.name = 'wand-grip';
     grip.position.y = -.03;
-    const ring = new THREE.Mesh(new THREE.TorusGeometry(.034, .007, 12, 28), glossy('#3d8cff', .22));
-    ring.position.y = .095;
+    const head = new THREE.Group();
+    head.position.y = .048;
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(ringR, .01, 12, 28), glossy('#3d8cff', .22));
+    ring.name = 'wand-ring';
+    ring.position.y = ringR;
+    const film = new THREE.MeshBasicNodeMaterial({
+      transparent: true, depthWrite: false, side: THREE.DoubleSide,
+    });
+    const shimmer = sin(time.mul(1.8).add(positionLocal.x.mul(48))).mul(.5).add(.5);
+    film.opacityNode = mix(float(.1), float(.28), shimmer);
+    film.colorNode = mix(tslColor('#8af7ff'), tslColor('#ffb6ea'), shimmer);
+    const soap = new THREE.Mesh(new THREE.CircleGeometry(ringR - .012, 24), film);
+    soap.position.y = ringR;
     const beads = new THREE.Group();
     const beadColors = ['#ff5d8f', '#ffe14a', '#7ddec0', '#7aa2ff'];
     for (let i = 0; i < 4; i++) {
-      const bead = new THREE.Mesh(new THREE.SphereGeometry(.009, 10, 8), glossy(beadColors[i], .3));
+      const bead = new THREE.Mesh(new THREE.SphereGeometry(.01, 10, 8), glossy(beadColors[i], .3));
       const angle = (i / 4) * Math.PI * 2;
-      bead.position.set(Math.cos(angle) * .034, .095 + Math.sin(angle) * .034, 0);
+      bead.position.set(Math.cos(angle) * ringR, ringR + Math.sin(angle) * ringR, 0);
       beads.add(bead);
     }
-    wand.add(handle, grip, ring, beads);
-    // Yellow grip sits on the back rim, left of the tap. The ring leans over the water.
-    wand.position.set(-.11, .22, -.22);
-    this.wandLean = .75;
-    this.wandRoll = -.25;
-    wand.rotation.set(this.wandLean, -.6, this.wandRoll);
+    head.add(ring, soap, beads);
+    wand.add(handle, grip, head);
+    // Grip on the back rim. The stick leans over the water, and the ring turns to face the camera.
+    wand.position.set(-.09, .2, -.22);
+    this.wandLean = 1.45;
+    this.wandYaw = 0;
+    this.wandRoll = 0;
+    wand.rotation.set(this.wandLean, this.wandYaw, this.wandRoll);
+    wand.updateWorldMatrix(true, true);
+    const gripPos = grip.geometry.attributes.position;
+    const gripPoint = new THREE.Vector3();
+    let gripMinY = Infinity;
+    for (let i = 0; i < gripPos.count; i++) {
+      gripPoint.fromBufferAttribute(gripPos, i).applyMatrix4(grip.matrixWorld);
+      gripMinY = Math.min(gripMinY, gripPoint.y);
+    }
+    wand.position.y += .185 - gripMinY;
+    wand.updateWorldMatrix(true, true);
+    const origin = new THREE.Vector3();
+    head.getWorldPosition(origin);
+    const portrait = new THREE.Vector3(BATH_PORTRAIT.x, BATH_PORTRAIT.y, BATH_PORTRAIT.z).sub(origin).normalize();
+    const landscape = new THREE.Vector3(BATH_HOME.x, BATH_HOME.y, BATH_HOME.z).sub(origin).normalize();
+    const aim = portrait.add(landscape).normalize();
+    const localAim = aim.transformDirection(new THREE.Matrix4().copy(wand.matrixWorld).invert());
+    head.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), localAim);
     return { group: wand, ring };
   }
 }

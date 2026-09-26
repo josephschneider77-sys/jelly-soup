@@ -87,7 +87,7 @@ assert(pushed.center.z<z0+.005,`faucet stream does not drive the jelly into the 
     ['duck-left',DUCK_HOME[0][0],.13,DUCK_HOME[0][1]],
     ['duck-right',DUCK_HOME[1][0],.13,DUCK_HOME[1][1]],
     ['duck-back',DUCK_HOME[2][0],.13,DUCK_HOME[2][1]],
-    ['wand',-.09,.28,-.15],
+    ['wand',-.1,.24,-.19],
   ];
   const wide=bathFrame(1280/800);
   assert(Math.abs(wide.fov-36.9)<1,'a wide screen keeps the three-quarter field of view');
@@ -213,10 +213,23 @@ assert(pushed.center.z<z0+.005,`faucet stream does not drive the jelly into the 
       assert(wand.minX>-.9&&wand.maxX<.9&&wand.minY>-.92&&wand.maxY<.92,`the wand stays on screen at ${w}x${h}`);
     }
   };
+  let ring=null;
+  bath.wand.traverse(obj=>{if(obj.name==='wand-ring')ring=obj;});
+  {
+    const phone=cameras.find(entry=>entry.w===390);
+    const box=projectBounds(phone.camera,ring);
+    const width=(box.maxX-box.minX)/2*390,height=(box.maxY-box.minY)/2*844;
+    assert(Math.min(width,height)/Math.max(width,height)>.75,`the wand ring faces the phone (${width.toFixed(0)}x${height.toFixed(0)})`);
+  }
   assertClear('resting');
   bath.setFaucet(true);
   bath.update(1/60,0);
   assertClear('water running');
+  let splash=null;
+  bath.faucet.traverse(obj=>{if(obj.name==='faucet-splash')splash=obj;});
+  for(const {w,h,camera} of cameras){
+    assert(!overlaps(projectBounds(camera,bath.ducks[2].group),projectBounds(camera,splash)),`the duck stays off the splash at ${w}x${h}`);
+  }
   const restLean=bath.wand.rotation.x;
   bath.wand.rotation.x=restLean+.21;
   assertClear('wand waved forward');
