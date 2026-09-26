@@ -1,247 +1,314 @@
 import * as THREE from 'three/webgpu';
-import { SoftBody } from '../physics/soft-body.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { FlavorPicker } from './flavor-picker.ts';
+import { Input } from './input.ts';
+import { FixedStepper } from './fixed-step.ts';
+import { Locomotion } from './locomotion.ts';
+import { JellySound } from './sound.ts';
+import { Bathroom, type BathBubble, type BathDuck } from './bath/bathroom.ts';
+import { applyBathForces, containInTub, placeInTub, pourOn, TUB, type FaucetPush } from './bath/forces.ts';
+import { BATH_HOME, screenHalfX } from './bath/layout.ts';
+import { Baby } from '../graphics/character/baby.ts';
+import { createRenderer, resizeView } from '../graphics/scene/renderer.ts';
 import { PHYS } from '../physics/constants.js';
 import { loadBabyCage } from '../physics/baby-cage.ts';
-import { RefractiveLightField } from '../graphics/optics/refractive-light.js';
-import { CausticReceivers } from '../graphics/optics/caustic-receivers.ts';
-import { Baby, ABSORPTION } from '../graphics/character/baby.ts';
-import { loadEnvironment } from '../graphics/scene/environment.ts';
-import { loadTableTextures, makeTable } from '../graphics/scene/table.ts';
-import { Locomotion } from './locomotion.ts';
-import { Input } from './input.ts';
-import { JellySound } from './sound.ts';
-import { createRenderer, resizeView } from '../graphics/scene/renderer.ts';
-import { OpticalTransport } from '../graphics/optics/transport.ts';
-import { createComposite } from '../graphics/scene/composite.ts';
-import { FixedStepper } from './fixed-step.ts';
-import { JELLY_FLAVORS } from '../graphics/character/jelly-flavors.ts';
-import { FlavorPicker } from './flavor-picker.ts';
-import { Facilities } from '../facilities/manager.ts';
-import { SwingFacility } from '../worlds/main/facilities/swing/facility.ts';
-import { SWING } from '../worlds/main/facilities/swing/physics.ts';
-import { TRAMPOLINE } from '../worlds/main/facilities/trampoline/physics.ts';
-import { BED } from '../worlds/main/facilities/bed/physics.ts';
-import { FacilityShadows } from '../facilities/shadows.ts';
-import { LightingMode } from './lighting-mode.ts';
-import { BedFacility } from '../worlds/main/facilities/bed/facility.ts';
-import { TrampolineFacility } from '../worlds/main/facilities/trampoline/facility.ts';
-import { CarriedWearableFacility, WearableFacility } from '../worlds/main/facilities/wearable/facility.ts';
-import { warmMainScenePipelines } from '../graphics/scene/render-warmup.ts';
-import { WorldTravel } from '../worlds/travel.ts';
-import { SOCCER_RUN_CADENCE_SCALE, SOCCER_RUN_SPEED_SCALE } from '../worlds/soccer/layout.ts';
-import { LocalReflectionProbe } from '../graphics/scene/local-reflections.ts';
-import { startupPlatformProfile } from './platform-profile.ts';
+import { SoftBody } from '../physics/soft-body.js';
 
-export async function startGame(stage:(s:string)=>void,fail:(e:unknown)=>void) {
-  const profile=startupPlatformProfile();
+export async function startGame(stage: (s: string) => void, fail: (e: unknown) => void) {
   stage('Starting WebGPU');
-  const renderer=await createRenderer(fail);
+  const renderer = await createRenderer(fail);
   document.querySelector('#viewport')!.appendChild(renderer.domElement);
-  // Construct audio before the remaining async scene work so the first mobile
-  // gesture can unlock Web Audio even while assets and shaders are settling.
-  const sound=new JellySound();
-  const scene=new THREE.Scene();
-  scene.background=new THREE.Color('#fff4c8');scene.fog=new THREE.Fog('#fff4c8',2,12);
-  const camera=new THREE.PerspectiveCamera(36,1,.001,40);
-  camera.position.set(.111,.170,.256);
-  stage('Loading the little room');
-  const [environment,nightEnvironment,cage,tableTextures]=await Promise.all([
-    loadEnvironment(renderer,scene),loadEnvironment(renderer,scene,true),loadBabyCage(),loadTableTextures(profile.mobile),
-  ]);
-  // Start the large table uploads before CPU-side world construction so the
-  // backend can overlap transfer work with geometry/physics setup.
-  for(const texture of Object.values(tableTextures))renderer.initTexture(texture);
-  stage('Making a little jelly');
-  const body=new SoftBody(cage);
-  const baby=new Baby(body);scene.add(baby.group);
-  const localReflections=new LocalReflectionProbe(scene,baby.group,environment.reflectionTexture,profile.reflectionFacesPerFrame);
-  baby.setReflectionMap(localReflections.texture,environment.intensity);
-  const optics=new RefractiveLightField(body.cage.opticalSurface,environment.incoming,ABSORPTION);
-  optics.setCamera(camera);
-  // Worker BVH construction is independent of the remaining scene setup. Start
-  // it here so that cold worker initialization runs in parallel with facilities.
-  const transport=new OpticalTransport(optics,body,camera,environment.incoming,fail,profile.cameraOnlyOpticalHz);
-  const caustics=new CausticReceivers(optics,environment);
-  const facilityShadows=new FacilityShadows(environment.incoming,environment.windowFraction,caustics,-.00005,profile.surfaceShadowSize);
-  facilityShadows.surfaces.addBaby(baby.mesh);
-  const table=makeTable(optics,environment,facilityShadows,caustics,tableTextures);scene.add(table.mesh);
-  const composite=createComposite(renderer,scene,camera,profile.bloomResolutionScale);
-  const rig=new Locomotion(body);
-  const facilities=new Facilities(body);
-  const worlds=new WorldTravel(scene,body,facilityShadows,facilities,renderer,camera,stage,fail,profile.cameraOnlyOpticalHz,true);
-  const wearableTable=new WearableFacility(worlds.home,body,baby.group,rig,facilityShadows);
-  const bed=new BedFacility(worlds.home,body,facilityShadows);
-  rig.onJump=()=>{
-    wearableTable.jumpFromNormalLocomotion();
-    if(worlds.inSoccer&&(worlds.soccer?.physics.onField??false))sound.soccerGrassContact('takeoff');
+  const sound = new JellySound();
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color('#7ec8f5');
+  scene.fog = new THREE.Fog('#b9e2f8', 4.2, 8);
+  const camera = new THREE.PerspectiveCamera(36, 1, .02, 12);
+  camera.position.set(BATH_HOME.x, BATH_HOME.y, BATH_HOME.z);
+  stage('Filling the tub');
+  const body = new SoftBody(await loadBabyCage());
+  // The face is bound in the jelly's rest pose. Move it into the tub after that.
+  const baby = new Baby(body);
+  placeInTub(body);
+  const bath = new Bathroom();
+  scene.add(bath.group, baby.group);
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  const environment = pmrem.fromScene(new RoomEnvironment(), .04).texture;
+  scene.environment = environment;
+  baby.setReflectionMap(environment, 1.15);
+  scene.add(new THREE.HemisphereLight('#fff1e0', '#6eb6e8', .85));
+  const sun = new THREE.DirectionalLight('#fff6e8', 1.25);
+  sun.position.set(.45, .9, .35);
+  scene.add(sun);
+  // Squish uses the rig. rig.step() is the walking motor, and its muscles fight the bath.
+  const rig = new Locomotion(body);
+  camera.lookAt(body.center);
+  const input = new Input(camera, renderer.domElement, body, baby.mesh, rig, sound);
+  const faucet: FaucetPush = { on: false, x: 0, z: -.1 };
+  let level = TUB.restLevel;
+  let ripple = 0;
+  let simTime = 0;
+  let splashWait = 0;
+  let giggleWait = 0;
+  let squeezeWait = 0;
+  let wasUnder = true;
+  let refill: 'idle' | 'drain' | 'fill' = 'idle';
+  const clock = new FixedStepper(PHYS.step);
+  const faucetCenter = new THREE.Vector3();
+  const duckCenters = bath.ducks.map(() => new THREE.Vector3());
+  const bubbleCenters = bath.bubbles.map(() => new THREE.Vector3());
+  const spongeCenter = new THREE.Vector3();
+  const cupCenter = new THREE.Vector3();
+  const spongeOffset = new THREE.Vector3();
+  let roamX = TUB.halfX;
+  const roam = (inset: number) => Math.min(TUB.halfX - .02, Math.max(.05, roamX - inset));
+
+  const giggle = () => {
+    if (giggleWait > 0) return;
+    giggleWait = .35;
+    baby.cheer();
+    sound.chirp();
   };
-  facilities.add(wearableTable);
-  worlds.toyFacilities.add(new CarriedWearableFacility(wearableTable));
-  worlds.soccerFacilities.add(new CarriedWearableFacility(wearableTable));
-  const swing=new SwingFacility(worlds.home,body,facilityShadows,sound.facility);
-  const trampoline=new TrampolineFacility(worlds.home,body,facilityShadows,sound.facility);
-  facilities.add(swing);
-  facilities.add(trampoline);
-  facilities.add(bed);
-  const flavorPicker=new FlavorPicker(flavor=>{
-    baby.setFlavor(flavor);optics.setAbsorption(JELLY_FLAVORS[flavor].absorption);
+  const splash = (amount: number) => {
+    ripple = Math.min(1, ripple + amount);
+    if (splashWait > 0) return;
+    splashWait = .28;
+    sound.splash();
+  };
+  let interaction: string | null = null;
+  let squishCount = 0;
+  let squishAt = 0;
+  const note = (name: string) => { interaction = name; };
+  const noteSquish = () => { squishCount++; squishAt = performance.now(); };
+  input.onTapJelly = () => { note('jelly'); noteSquish(); rig.squish(); giggle(); splash(.35); };
+  // Space splashes the water. Bath Time has no rideable toy to climb off.
+  input.onTapGround = () => { ripple = Math.min(1, ripple + .25); };
+  const syncCenters = () => {
+    bath.faucet.getWorldPosition(faucetCenter);
+    faucet.x = faucetCenter.x; faucet.z = faucetCenter.z + .09;
+    bath.ducks.forEach((duck, i) => duckCenters[i].set(duck.x, level + .02, duck.z));
+    bath.bubbles.forEach((bubble, i) => bubbleCenters[i].set(bubble.x, bubble.y, bubble.z));
+    spongeCenter.set(bath.sponge.group.position.x, bath.sponge.group.position.y, bath.sponge.group.position.z);
+    bath.cup.getWorldPosition(cupCenter);
+  };
+  syncCenters();
+  input.toyTaps.push({
+    center: faucetCenter, radius: .05, object: bath.faucet, label: 'faucet', use: () => {
+      note('faucet');
+      faucet.on = !faucet.on;
+      bath.setFaucet(faucet.on);
+      splash(.2);
+    },
   });
-  rig.onContact=(speed,foot)=>{
-    const soccerField=worlds.inSoccer&&(worlds.soccer?.physics.onField??false);
-    if(soccerField){if(!foot)sound.soccerGrassContact('land');return;}
-    sound.contact(speed,foot);
-  };
-  const physicsClock=new FixedStepper(PHYS.step);
-  let lastTime=0,disposed=false;
-  const reset=()=>{if(worlds.loading)return;sound.stopFacilities();worlds.reset();input.teleport();rig.yaw=worlds.arrivalYaw;baby.resetFace();physicsClock.reset();};
-  const input=new Input(camera,renderer.domElement,body,baby.mesh,rig,sound);
-  const happy=()=>{baby.cheer();sound.chirp();};
-  const dismount=(facility:{interact:()=>boolean})=>{
-    if(!facility.interact())return;
-    input.clear();rig.reset();happy();
-  };
-  input.onTapGround=()=>{
-    if(worlds.loading||worlds.menu.opened)return;
-    const active=worlds.facilities.active;
-    if(active){dismount(active);return;}
-    rig.jump();happy();
-  };
-  input.onTapJelly=()=>{rig.squish();happy();};
-  const playToy=(facility:{readonly id:string;readonly active:boolean;summon:()=>boolean;interact:()=>boolean})=>{
-    if(worlds.loading||worlds.menu.opened)return;
-    const owner=worlds.facilities.active;
-    if(owner?.id===facility.id){dismount(facility);return;}
-    if(owner)return;
-    if(facility.summon()){rig.reset();happy();}
-  };
-  input.toyTaps.push(
-    {center:new THREE.Vector3(SWING.x,.09,SWING.z),radius:.05,object:swing.group,use:()=>playToy(swing)},
-    {center:new THREE.Vector3(TRAMPOLINE.x,.05,TRAMPOLINE.z),radius:.05,object:trampoline.group,use:()=>playToy(trampoline)},
-    {center:new THREE.Vector3(BED.x,.05,BED.z),radius:.05,object:bed.group,use:()=>playToy(bed)},
-  );
-  input.bodyControlled=()=>worlds.loading||worlds.menu.opened||!!worlds.facilities.active;
-  input.menuOpen=()=>worlds.menu.opened;
-  input.soccerOnField=()=>worlds.inSoccer&&(worlds.soccer?.physics.onField??false);
-  input.soccerCameraObstacles=()=>worlds.inSoccer&&(worlds.soccer?.physics.onField??false)?worlds.soccer?.stadium.cameraObstacles??[]:[];
-  input.facilityCameraDistance=()=>worlds.facilities.active?.cameraDistance;
-  input.vehicleInput=(throttle,turn)=>{const p=worlds.tricycle?.physics;if(p&&worlds.inToys){p.throttle=p.riding?throttle:0;p.turn=p.riding?turn:0;}};
-  input.ridingVehicle=()=>worlds.inToys&&(worlds.tricycle?.physics.riding??false);
-  input.vehicleHeading=()=>worlds.tricycle?.physics.yaw;
-  facilities.onInteract=()=>{input.clear();rig.reset();void sound.unlock().catch(()=>{});};
-  worlds.toyFacilities.onInteract=facilities.onInteract;
-  worlds.soccerFacilities.onInteract=facilities.onInteract;
-  worlds.onMenuClose=()=>input.clear();
-  worlds.onMove=()=>{input.clear();sound.stopFacilities();physicsClock.reset();};
-  worlds.onMenuOpen=worlds.onMove;
-  worlds.onReady=async()=>{
-    input.teleport();rig.yaw=worlds.arrivalYaw;baby.resetFace();physicsClock.reset();
-    sound.prepareWorld(worlds.current);
-    if(worlds.tricycle){
-      worlds.tricycle.physics.onCrash=speed=>sound.contact(speed,false);
-      worlds.tricycle.onWalkCurbImpact=speed=>rig.surfaceImpact(speed);
-    }
-    if(worlds.soccer)worlds.soccer.physics.onEvent=(kind,strength,p)=>sound.soccerEvent(kind,strength,p);
-    baby.update();optics.update(renderer,body,true);transport.follow();await transport.update();
-    localReflections.captureNow(renderer,body.center);
-  };
-  const lightingMode=new LightingMode(renderer,scene,camera,environment,nightEnvironment,async(light,signal)=>{
-    optics.setLightDirection(light.incoming);
-    facilityShadows.setLighting(light.incoming,light.windowFraction);caustics.setLighting(light);table.setLighting(light);
-    localReflections.setEnvironment(light.reflectionTexture);baby.setReflectionMap(localReflections.texture,light.intensity);
-    // Refresh every visible derivative while the animation loop holds the last
-    // coherent frame. Worker and GPU work overlap where their dependencies allow.
-    const transportReady=transport.refreshLighting(light.incoming);
-    const shadowSyncRevision=facilityShadows.update(renderer);
-    facilityShadows.surfaces.update(renderer,shadowSyncRevision);
-    optics.update(renderer,body,true);
-    const soccerReady=worlds.soccer?.prepareLighting(renderer,worlds.inSoccer)??Promise.resolve();
-    await Promise.all([transportReady,soccerReady]);
-    if(signal.aborted)return;
-    transport.follow();localReflections.captureNow(renderer,body.center);
-  },()=>composite.render(),fail);
-  const resize=()=>resizeView(renderer,camera,input.controls,profile.maxDpr);
-  let resizeFrame=0;
-  const resizeObserver=new ResizeObserver(()=>{
-    cancelAnimationFrame(resizeFrame);resizeFrame=requestAnimationFrame(resize);
+  bath.ducks.forEach((duck, i) => {
+    const offset = new THREE.Vector3();
+    input.toyTaps.push({
+      center: duckCenters[i], radius: .05, object: duck.group, label: 'duck',
+      use: () => {
+        note('duck');
+        sound.squeak();
+        duck.vx += (Math.random() - .5) * .35;
+        duck.vz += (Math.random() - .5) * .35;
+        giggle();
+      },
+      drag: (phase, point) => {
+        note('duck');
+        if (phase === 'start') { duck.held = true; offset.set(duck.x - point.x, 0, duck.z - point.z); }
+        if (phase === 'end') { duck.held = false; return; }
+        const xWall = roam(.03);
+        duck.x = THREE.MathUtils.clamp(point.x + offset.x, -xWall, xWall);
+        duck.z = THREE.MathUtils.clamp(point.z + offset.z, -TUB.halfZ + .03, TUB.halfZ - .03);
+        duck.vx = 0; duck.vz = 0;
+        duck.group.position.set(duck.x, level + .02, duck.z);
+        duckCenters[i].copy(duck.group.position);
+      },
+    });
   });
-  resizeObserver.observe(document.querySelector('#viewport')!);resize();
-  document.querySelector('#reset')!.addEventListener('click',event=>{
-    reset();if((event as MouseEvent).detail>0)(event.currentTarget as HTMLButtonElement).blur();
-  });
-  document.querySelector('#sound')!.addEventListener('click',event=>{
-    const muted=sound.toggle(),button=document.querySelector('#sound')!;
-    button.setAttribute('aria-pressed',String(muted));button.setAttribute('aria-label',muted?'Enable sound':'Mute sound');
-    button.classList.toggle('muted',muted);void sound.unlock().catch(()=>{});
-    if((event as MouseEvent).detail>0)(event.currentTarget as HTMLButtonElement).blur();
-  });
-  stage('Settling in');
-  // Let contact establish itself before displaying the first frame.
-  for(let i=0;i<80;i++){rig.step(PHYS.step);body.step(PHYS.step);}
-  body.updateSurface();
-  stage('Warming collisions');
-  facilities.warmupCollisions();
-  baby.update();input.update(1);
-  const shadowSyncRevision=facilityShadows.update(renderer);
-  facilityShadows.surfaces.update(renderer,shadowSyncRevision);
-  optics.update(renderer,body,true);
-  await transport.update();
-  localReflections.captureNow(renderer,body.center);
-  stage('Compiling the material');
-  await warmMainScenePipelines(renderer,scene,camera);
-  stage('Drawing the first frame');
-  composite.render();
-  // Fence first-frame GPU work so validation/OOM cannot masquerade as a successful boot.
-  const backend=renderer.backend as unknown as {device:GPUDevice};
-  await backend.device.queue.onSubmittedWorkDone();
-  lastTime=performance.now();
-  const frame=(time:number)=>{
-    if(disposed)return;
-    try {
-      const dt=Math.min(.05,Math.max(0,(time-lastTime)/1000));lastTime=time;
-      if(document.hidden){physicsClock.reset();return;}
-      if(lightingMode.switching){physicsClock.reset();return;}
-      if(worlds.loading||worlds.menu.opened){physicsClock.reset();return;}
-      const steps=physicsClock.advance(dt,()=>{
-        if(worlds.loading)return;
-        const current=worlds.facilities;
-        const soccerField=worlds.inSoccer&&(worlds.soccer?.physics.onField??false);
-        rig.speedScale=soccerField?SOCCER_RUN_SPEED_SCALE:1;rig.cadenceScale=soccerField?SOCCER_RUN_CADENCE_SCALE:1;
-        input.step(PHYS.step);current.step(PHYS.step);
-        if(!current.active)rig.step(PHYS.step);
-        body.step(PHYS.step);wearableTable.syncBedOccupancy(bed.active);current.afterStep();input.afterPhysicsStep();
-        if(!current.active)rig.afterStep();
-        worlds.step(PHYS.step);
-      });
-      if(steps&&body.surfaceDirty) {
-        if(!body.isFinite())throw new Error('The soft-body simulation produced an invalid state');
-        body.updateSurface();
+  bath.bubbles.forEach((bubble, i) => input.toyTaps.push({
+    center: bubbleCenters[i], radius: .06, object: bubble.mesh, label: 'bubble', yieldsToToys: true,
+    use: () => popBubble(bubble),
+  }));
+  input.toyTaps.push({
+    center: spongeCenter, radius: .06, object: bath.sponge.group, label: 'sponge', yieldsToJelly: true,
+    use: () => { note('sponge'); squeeze(); },
+    drag: (phase, point) => {
+      note('sponge');
+      if (phase === 'start') {
+        bath.holdSponge();
+        spongeOffset.copy(bath.sponge.group.position).sub(point);
       }
-      if(worlds.loading)return;
-      worlds.facilities.update();worlds.update(dt);
-      baby.update(dt,worlds.facilities.active?.laughing??false,worlds.facilities.active?.sleeping??false,worlds.facilities.crying);
-      const shadowSyncRevision=facilityShadows.update(renderer);
-      facilityShadows.surfaces.update(renderer,shadowSyncRevision);
-      input.update(dt);
-      sound.listen(camera);
-      const tricycle=worlds.inToys?worlds.tricycle?.physics:undefined;
-      if(tricycle)sound.tricycleMotion(tricycle.riding?tricycle.rollingSpeed:0,tricycle.position.x,tricycle.position.y+.025,tricycle.position.z);
-      const soccer=worlds.inSoccer?worlds.soccer?.physics:undefined;
-      if(soccer)sound.soccerMotion(soccer.onField&&rig.grounded&&rig.move.lengthSq()>.01?Math.hypot(rig.velocity.x,rig.velocity.z):0);
-      transport.follow();
-      optics.update(renderer,body);
-      table.mesh.position.x=body.center.x;table.mesh.position.z=body.center.z;
-      localReflections.update(renderer,body.center);
-      void transport.update().catch(fail);
-      composite.render();
-    }catch(error){fail(error);}
+      const xWall = roam(.04);
+      const x = THREE.MathUtils.clamp(point.x + spongeOffset.x, -xWall, xWall);
+      const z = THREE.MathUtils.clamp(point.z + spongeOffset.z, -TUB.halfZ + .04, TUB.halfZ - .04);
+      bath.sponge.group.position.set(x, level + .045, z);
+      spongeCenter.copy(bath.sponge.group.position);
+      if (phase === 'end') bath.releaseSponge();
+      else if (phase !== 'start') squeeze();
+    },
+  });
+  input.toyTaps.push({
+    center: cupCenter, radius: .06, object: bath.cup, label: 'cup', use: () => {
+      note('cup');
+      pourOn(body, body.center.x, body.center.z);
+      bath.pour();
+      splash(.7);
+      giggle();
+    },
+  });
+
+  function popBubble(bubble: BathBubble) {
+    if (!bubble.alive) return;
+    note('bubble');
+    bath.pop(bubble);
+    sound.pop();
+    giggle();
+    ripple = Math.min(1, ripple + .3);
+  }
+  function squeeze() {
+    if (squeezeWait > 0) return;
+    // Meters, not pixels, so a rub keeps counting on a tablet the same way it does on a phone.
+    if (bath.sponge.group.position.distanceTo(body.center) > .11) return;
+    squeezeWait = .4;
+    noteSquish();
+    rig.squish();
+    giggle();
+  }
+  function stepDucks(h: number) {
+    const jellyX = body.center.x, jellyZ = body.center.z;
+    for (const duck of bath.ducks) separateDuck(duck, jellyX, jellyZ, h);
+    for (let a = 0; a < bath.ducks.length; a++) for (let b = a + 1; b < bath.ducks.length; b++) {
+      const left = bath.ducks[a], right = bath.ducks[b];
+      const dx = right.x - left.x, dz = right.z - left.z, dist = Math.hypot(dx, dz) || .0001;
+      if (dist < .06) {
+        const push = (.1 - dist) * 2.2;
+        left.vx -= dx / dist * push; left.vz -= dz / dist * push;
+        right.vx += dx / dist * push; right.vz += dz / dist * push;
+      }
+    }
+  }
+  function separateDuck(duck: BathDuck, jellyX: number, jellyZ: number, h: number) {
+    if (duck.held) {
+      duck.group.position.y = level + .02 + Math.sin(simTime * 2 + duck.phase) * .004;
+      return;
+    }
+    duck.vx += (duck.homeX - duck.x) * 1.5 * h;
+    duck.vz += (duck.homeZ - duck.z) * 1.5 * h;
+    const dx = duck.x - jellyX, dz = duck.z - jellyZ, dist = Math.hypot(dx, dz);
+    if (dist < .06 && dist > 1e-4) {
+      const push = (.09 - dist) * 4;
+      duck.vx += dx / dist * push; duck.vz += dz / dist * push;
+      const v = body.velocity;
+      for (let i = 0; i < body.mass.length; i++) {
+        const j = i * 3;
+        const px = body.x[j] - duck.x, pz = body.x[j + 2] - duck.z;
+        if (px * px + pz * pz < .008) { v[j] -= dx / dist * .9 * h; v[j + 2] -= dz / dist * .9 * h; }
+      }
+    }
+    duck.vx *= Math.exp(-1.4 * h); duck.vz *= Math.exp(-1.4 * h);
+    const xWall = roam(.03);
+    duck.x = THREE.MathUtils.clamp(duck.x + duck.vx * h, -xWall, xWall);
+    duck.z = THREE.MathUtils.clamp(duck.z + duck.vz * h, -TUB.halfZ + .04, TUB.halfZ - .04);
+    duck.group.position.set(duck.x, level + .02 + Math.sin(simTime * 2 + duck.phase) * .004, duck.z);
+    duck.group.rotation.y = Math.sin(simTime * .7 + duck.phase) * .4;
+  }
+
+  const reset = () => {
+    input.clear();
+    interaction = null;
+    faucet.on = false;
+    bath.setFaucet(false);
+    refill = 'drain';
+    splash(.4);
   };
-  await renderer.setAnimationLoop(frame);
-  const dispose=()=>{
-    if(disposed)return;disposed=true;
-    lightingMode.dispose();void renderer.setAnimationLoop(null);input.dispose();sound.dispose();transport.dispose();resizeObserver.disconnect();cancelAnimationFrame(resizeFrame);
-    worlds.dispose();facilities.dispose();facilityShadows.dispose();caustics.dispose();flavorPicker.dispose();composite.dispose();localReflections.dispose();baby.dispose();table.dispose();environment.dispose();optics.dispose();renderer.dispose();
+  document.querySelector('#sound')!.addEventListener('click', () => {
+    const muted = sound.toggle();
+    document.querySelector('#sound')!.classList.toggle('muted', muted);
+    document.querySelector('#sound')!.setAttribute('aria-pressed', String(muted));
+    void sound.unlock().catch(() => {});
+  });
+  document.querySelector('#reset')!.addEventListener('click', reset);
+  const flavors = new FlavorPicker(name => baby.setFlavor(name));
+  const resize = () => {
+    resizeView(renderer, camera, input.controls, 1.5);
+    input.captureHome();
+    roamX = screenHalfX(camera.aspect);
+    bath.setRoam(roamX);
   };
-  window.addEventListener('pagehide',event=>{if(!event.persisted)dispose();});
-  if(import.meta.hot)import.meta.hot.dispose(dispose);
-  return {stop:()=>{disposed=true;worlds.dispose();lightingMode.dispose();input.clear();facilities.dispose();facilityShadows.dispose();caustics.dispose();flavorPicker.dispose();sound.dispose();transport.dispose();localReflections.dispose();void renderer.setAnimationLoop(null);}};
+  resize();
+  const resizeObserver = new ResizeObserver(resize);
+  resizeObserver.observe(document.body);
+  let disposed = false;
+  let last = performance.now();
+  const frame = (now: number) => {
+    if (disposed) return;
+    const dt = Math.min(.05, Math.max(0, (now - last) / 1000));
+    last = now;
+    splashWait = Math.max(0, splashWait - dt);
+    giggleWait = Math.max(0, giggleWait - dt);
+    squeezeWait = Math.max(0, squeezeWait - dt);
+    const target = refill === 'drain' ? TUB.floor + .012 : faucet.on ? Math.min(TUB.maxLevel, TUB.restLevel + .028) : TUB.restLevel;
+    level += (target - level) * (1 - Math.exp(-dt * (refill === 'idle' ? .7 : 2.4)));
+    if (refill === 'drain' && level < TUB.floor + .02) {
+      placeInTub(body);
+      rig.reset();
+      bath.resetToys();
+      syncCenters();
+      refill = 'fill';
+    } else if (refill === 'fill' && Math.abs(level - TUB.restLevel) < .004) refill = 'idle';
+    bath.setLevel(level);
+    const beforeY = body.center.y;
+    clock.advance(dt, () => {
+      simTime += PHYS.step;
+      input.step(PHYS.step);
+      const motion = applyBathForces(body, level, PHYS.step, faucet, simTime);
+      stepDucks(PHYS.step);
+      body.step(PHYS.step);
+      containInTub(body, roamX);
+      input.afterPhysicsStep();
+      if (motion.speed > .35) ripple = Math.min(1, ripple + motion.speed * .04);
+    });
+    body.updateCenter();
+    const under = body.center.y < level + .01;
+    if (under && !wasUnder && beforeY - body.center.y > 0) splash(.8);
+    wasUnder = under;
+    ripple *= Math.exp(-2.2 * dt);
+    bath.setRipple(ripple);
+    body.updateSurface();
+    baby.update(dt);
+    bath.update(dt, simTime);
+    syncCenters();
+    if (input.hold() === 'sponge') squeeze();
+    input.update(dt);
+    sound.listen(camera);
+    renderer.render(scene, camera);
+  };
+  renderer.setAnimationLoop(frame);
+  stage('Bath time');
+  if (new URLSearchParams(location.search).get('qc') === '1') {
+    const spherical = new THREE.Spherical();
+    const offset = new THREE.Vector3();
+    Object.assign(window, {
+      __jellyQC: {
+        get jelly() { return { x: body.center.x, y: body.center.y, z: body.center.z }; },
+        get squish() { return { count: squishCount, active: squishAt > 0 && performance.now() - squishAt < 400 }; },
+        get interaction() { return input.hold() ?? interaction; },
+        get faucet() { return faucet.on; },
+        get camera() {
+          offset.copy(camera.position).sub(input.controls.target);
+          spherical.setFromVector3(offset);
+          return { theta: spherical.theta, phi: spherical.phi, radius: spherical.radius };
+        },
+      },
+    });
+  }
+  return {
+    stop: () => {
+      disposed = true;
+      input.dispose();
+      flavors.dispose();
+      sound.dispose();
+      resizeObserver.disconnect();
+      void renderer.setAnimationLoop(null);
+      pmrem.dispose();
+    },
+  };
 }

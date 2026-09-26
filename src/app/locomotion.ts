@@ -13,6 +13,7 @@ export class Locomotion {
   private gaitWeight=0;
   grounded=false;
   private jumpQueued=false;
+  private jumpBuffer=0;
   private jumpCooldown=0;
   private releasedFor=1;
   private restCenter=new Vector3();
@@ -32,7 +33,7 @@ export class Locomotion {
     this.body=body;
     for(let i=0;i<body.mass.length;i++) this.restCenter.addScaledVector(new Vector3().fromArray(body.rest,i*3),body.mass[i]/body.totalMass);
   }
-  jump() { this.jumpQueued=true; }
+  jump() { this.jumpQueued=true; this.jumpBuffer=.2; }
   /** A tap on the jelly: crown dips, sides bulge, and the soft body springs back. */
   squish() {
     const b=this.body;b.wake();
@@ -54,7 +55,7 @@ export class Locomotion {
       b.velocity[j]+=rx*amount*6;b.velocity[j+2]+=rz*amount*6;b.velocity[j+1]-=crown*amount*.7;
     }
   }
-  reset() { this.yaw=0; this.phase=0;this.speedScale=1;this.cadenceScale=1;this.gaitWeight=0;this.jumpCooldown=0; this.jumpQueued=false; this.move.set(0,0,0); }
+  reset() { this.yaw=0; this.phase=0;this.speedScale=1;this.cadenceScale=1;this.gaitWeight=0;this.jumpCooldown=0; this.jumpQueued=false; this.jumpBuffer=0; this.move.set(0,0,0); }
   step(h:number) {
     const b=this.body, x=b.x, v=b.velocity;
     this.elapsed+=h; this.jumpCooldown-=h;
@@ -69,7 +70,7 @@ export class Locomotion {
     b.canSleep=speed<.001&&!this.jumpQueued;
     if(!b.canSleep)b.wake();
     if(b.sleeping)return;
-    if(b.grab) { this.releasedFor=0; this.jumpQueued=false; return; }
+    if(b.grab) { this.releasedFor=0; this.jumpQueued=false; this.jumpBuffer=0; return; }
     this.releasedFor+=h;
     const recovery=Math.min(1,this.releasedFor/0.55);
     if(speed>.01) {
@@ -115,8 +116,12 @@ export class Locomotion {
       }
       this.onJump();
       this.jumpCooldown=.24;
+      this.jumpQueued=false;
+      this.jumpBuffer=0;
+    } else if(this.jumpQueued) {
+      this.jumpBuffer-=h;
+      if(this.jumpBuffer<=0){this.jumpQueued=false;this.jumpBuffer=0;}
     }
-    this.jumpQueued=false;
   }
   afterStep() {
     let contact=0;

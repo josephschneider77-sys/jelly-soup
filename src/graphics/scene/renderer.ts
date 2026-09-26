@@ -1,5 +1,6 @@
 import * as THREE from 'three/webgpu';
 import type { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { bathFrame } from '../../app/bath/layout.ts';
 import { WEBGPU_REQUIRED } from '../../app/startup-error.ts';
 
 export async function createRenderer(fail:(e:unknown)=>void) {
@@ -33,9 +34,10 @@ export async function createRenderer(fail:(e:unknown)=>void) {
     if(info.reason==='destroyed'&&!disposing){fail(new Error('WebGPU device was unexpectedly destroyed'));void renderer.setAnimationLoop(null);}
   });
   renderer.outputColorSpace=THREE.SRGBColorSpace;
-  renderer.toneMapping=THREE.AgXToneMapping;renderer.toneMappingExposure=1.12;
+  // AgX flattens these pastels into grey. Filmic keeps the tub, tiles, and water apart.
+  renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=1.08;
   renderer.domElement.tabIndex=0;
-  renderer.domElement.setAttribute('aria-label','Jelly Soup. Tap to hop. Tap the jelly for a squish. Tap the swing, trampoline, or bed to play.');
+  renderer.domElement.setAttribute('aria-label','Jelly Soup Bath Time. Tap the jelly, the ducks, the bubbles, or the faucet.');
   return renderer;
 }
 
@@ -49,9 +51,12 @@ export function resizeView(renderer:THREE.WebGPURenderer,camera:THREE.Perspectiv
   const width=Math.max(1,window.innerWidth),height=Math.max(1,window.innerHeight);
   renderer.setDrawingBufferSize(width,height,drawingBufferDpr(width,height,window.devicePixelRatio,maxDpr));
   camera.aspect=width/height;
-  camera.fov=2*Math.atan(Math.tan(18*Math.PI/180)*Math.max(1,.85/camera.aspect))*180/Math.PI;
-  // Every visible ray meets the tabletop. The horizon never enters the frame.
-  controls.maxPolarAngle=Math.PI/2-THREE.MathUtils.degToRad(camera.fov)/2-.10;
-  camera.setViewOffset(width,height,0,height*(width<700?.075:.025),width,height);
-  camera.updateProjectionMatrix();controls.update();
+  const frame=bathFrame(camera.aspect);
+  camera.fov=frame.fov;
+  camera.position.set(frame.x,frame.y,frame.z);
+  camera.lookAt(frame.lookX,frame.lookY,frame.lookZ);
+  camera.clearViewOffset();
+  camera.updateProjectionMatrix();
+  controls.target.set(frame.lookX,frame.lookY,frame.lookZ);
+  controls.update();
 }

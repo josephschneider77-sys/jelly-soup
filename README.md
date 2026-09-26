@@ -1,38 +1,23 @@
-# Jelly Soup
+# Jelly Soup: Bath Time
 
-![Jelly Soup](public/og_image.png)
+![Jelly Soup: Bath Time](public/og_image.png)
 
 ***Play live at: https://josephschneider77-sys.github.io/jelly-soup/***
 
 Based on Jelly Baby by Scott Sun (https://github.com/scottstts/Jelly-Baby), GPL-3.0.
 
-## A very small world with excellent bounce
+## A bright tub and a very soft jelly
 
-Jelly Soup is a 7 cm resident of a warm wooden tabletop, tuned for toddlers. It has no errands, no
-scoreboard, and no interest in standing still for long.
+Jelly Soup: Bath Time is a small bath for toddlers. The jelly floats, bobs, and
+wobbles. There is no score, no timer, and nothing to fail.
 
-Wander over to the swing. Try the trampoline. Pull the little jelly by the
-crown, give it a hop, then let go and watch the wobble travel through it. The
-room is quiet enough to notice the details: the window light on the table, the
-soft thump of a landing, the face changing its mind halfway through a stretch.
+Tap the jelly for a squish and a giggle. Drag it to toss it back into the water.
+Tap the faucet and a stream pushes the jelly while the water rises a little.
+Tap bubbles to pop them. Tap a rubber duck and it squeaks. Drag the sponge onto
+the jelly for a squeeze. Tap the cup to pour water.
 
-Choose a flavor when the mood changes. Lime is the default; strawberry,
-blueberry, and lemon are waiting in the palette.
-
-## Make it move
-
-Tap anywhere to hop. Tap the jelly for a squish and a smile. Tap the swing, the
-trampoline, or the bed and the jelly hops on and plays — no careful dragging.
-
-On desktop, `WASD` or the arrow keys still wander and `Space` still hops. Drag
-the tabletop to look around; the view eases back to the jelly after a few quiet
-seconds. Drag the jelly itself to stretch it.
-
-On touch, the joystick wanders and the round button hops. Big color blobs change
-the flavor. Soccer and the tricycle stay in the project, but the playroom portal
-that led to them is hidden so the table stays simple.
-
-Sound begins with your first interaction and can be muted from the top corner.
+The round buttons in the corner are sound, drain-and-refill, and color blobs
+for the jelly's flavor. The camera stays on the tub.
 
 ## License
 
