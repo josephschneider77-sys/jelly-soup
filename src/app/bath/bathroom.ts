@@ -28,6 +28,8 @@ export type BathBubble = {
   speed: number;
   wait: number;
   phase: number;
+  vx: number;
+  vz: number;
   /** Wand bubbles stay hidden until the wand is tapped. */
   burst: boolean;
 };
@@ -58,7 +60,8 @@ export class Bathroom {
   private faucetOn = false;
   private handleAngle = 0;
   private wave = 0;
-  private wandRest = 0;
+  private wandLean = 0;
+  private wandRoll = 0;
   private pourLeft = 0;
   private roamX = TUB.halfX;
   private spongeHeld = false;
@@ -119,7 +122,9 @@ export class Bathroom {
     this.cup.rotation.z = 0;
     this.cupStream.visible = false;
     this.wave = 0;
-    this.wand.rotation.z = this.wandRest;
+    this.wand.rotation.x = this.wandLean;
+    this.wand.rotation.y = -.6;
+    this.wand.rotation.z = this.wandRoll;
     for (const bubble of this.bubbles) {
       if (bubble.burst) this.pop(bubble);
       else this.respawn(bubble, Math.random());
@@ -139,13 +144,15 @@ export class Bathroom {
     let n = 0;
     for (const bubble of this.bubbles) {
       if (!bubble.burst) continue;
-      const spread = (n - 2.5) * .028;
       bubble.alive = true;
       bubble.wait = 0;
-      bubble.x = ring.x + spread;
-      bubble.z = ring.z + .06 + (n % 3) * .015;
-      bubble.y = this.level + .045 + (n % 3) * .012;
-      bubble.speed = .012 + (n % 3) * .004;
+      bubble.x = ring.x + (n - 2.5) * .02;
+      bubble.z = ring.z + .05 + (n % 3) * .01;
+      // Low over the water. A higher start dies on the first frame.
+      bubble.y = this.level + .02 + n * .002;
+      bubble.speed = .008;
+      bubble.vx = .014;
+      bubble.vz = (n - 2.5) * .003;
       this.clearOfSponge(bubble);
       bubble.mesh.visible = true;
       bubble.mesh.position.set(bubble.x, bubble.y, bubble.z);
@@ -158,7 +165,7 @@ export class Bathroom {
   update(dt: number, timeSeconds: number) {
     const wobble = this.faucetOn ? .92 + Math.sin(timeSeconds * 28) * .08 : 1;
     this.stream.scale.y = wobble;
-    this.stream.position.set(this.spoutLocal.x, this.spoutLocal.y - .05 * wobble, this.spoutLocal.z);
+    this.stream.position.set(this.spoutLocal.x, this.spoutLocal.y - .035 * wobble, this.spoutLocal.z);
     const tip = this.faucetTip(this.mouth);
     this.splashRing.position.set(tip.x, this.level + .006, tip.z);
     this.faucet.worldToLocal(this.splashRing.position);
@@ -169,7 +176,8 @@ export class Bathroom {
     if (this.wave > 0) {
       this.wave = Math.max(0, this.wave - dt);
       const t = 1 - this.wave / .7;
-      this.wand.rotation.z = this.wandRest + Math.sin(t * Math.PI * 3) * (1 - t) * .7;
+      // A small nod. A bigger swing would cross the faucet.
+      this.wand.rotation.x = this.wandLean + Math.sin(t * Math.PI * 3) * (1 - t) * .25;
     }
     this.aimPour(dt);
     this.easeSponge(dt);
@@ -181,8 +189,9 @@ export class Bathroom {
         continue;
       }
       bubble.y += bubble.speed * dt;
-      bubble.x += Math.sin(timeSeconds * .7 + bubble.phase) * .006 * dt;
-      bubble.z += Math.cos(timeSeconds * .5 + bubble.phase) * .004 * dt;
+      const sway = bubble.burst ? .012 : .006;
+      bubble.x += Math.sin(timeSeconds * .7 + bubble.phase) * sway * dt + bubble.vx * dt;
+      bubble.z += Math.cos(timeSeconds * .5 + bubble.phase) * (bubble.burst ? .008 : .004) * dt + bubble.vz * dt;
       this.clearOfSponge(bubble);
       const bubbleLimit = Math.min(.12, Math.max(.05, this.roamX - bubble.radius));
       bubble.x = THREE.MathUtils.clamp(bubble.x, -bubbleLimit, bubbleLimit);
@@ -190,8 +199,9 @@ export class Bathroom {
       this.clearOfSponge(bubble);
       if (Math.abs(bubble.x) < .06 && bubble.z > -.03) bubble.z = -.08;
       bubble.mesh.position.set(bubble.x, bubble.y, bubble.z);
-      // Stay on the water, inside the tub, where a tap can reach.
-      if (bubble.y > this.level + .065) this.pop(bubble, 1.4 + Math.random());
+      // Wand bubbles rise slowly and live about five seconds. The others stay low.
+      const ceiling = bubble.burst ? .068 : .065;
+      if (bubble.y > this.level + ceiling) this.pop(bubble, 1.4 + Math.random());
     }
   }
   private aimPour(dt: number) {
@@ -322,32 +332,38 @@ export class Bathroom {
     faucet.position.set(FAUCET_HOME.x, FAUCET_HOME.y, FAUCET_HOME.z);
     const metal = glossy('#d5dee8', .16);
     metal.metalness = .62;
-    const plate = new THREE.Mesh(new THREE.BoxGeometry(.06, .045, .02), metal);
-    plate.position.set(0, .03, -.012);
-    const body = new THREE.Mesh(new THREE.CylinderGeometry(.016, .018, .04, 14), metal);
-    body.position.set(0, .045, .018);
-    const spout = new THREE.Mesh(new THREE.CylinderGeometry(.012, .014, .13, 14), metal);
-    spout.rotation.x = Math.PI / 2 + .45;
-    spout.position.set(0, .05, .07);
-    const mouth = new THREE.Mesh(new THREE.TorusGeometry(.016, .004, 8, 14), metal);
-    mouth.rotation.x = .45;
-    mouth.position.copy(spout.position);
-    const dir = new THREE.Vector3(0, -Math.sin(.45), Math.cos(.45));
-    mouth.position.addScaledVector(dir, .065);
+    const plate = new THREE.Mesh(new THREE.BoxGeometry(.06, .05, .02), metal);
+    plate.position.set(0, .032, -.012);
+    const body = new THREE.Mesh(new THREE.CylinderGeometry(.022, .024, .046, 14), metal);
+    body.position.set(0, .048, .018);
+    // A short gooseneck: out from the wall, then down into the tub.
+    const elbow = new THREE.Mesh(new THREE.TorusGeometry(.04, .017, 12, 18, Math.PI / 2), metal);
+    elbow.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(
+      new THREE.Vector3(0, 1, 0),
+      new THREE.Vector3(0, 0, 1),
+      new THREE.Vector3(1, 0, 0),
+    ));
+    elbow.position.set(0, .03, .04);
+    const nozzle = new THREE.Mesh(new THREE.CylinderGeometry(.016, .02, .038, 14), metal);
+    nozzle.position.set(0, .011, .08);
+    const mouth = new THREE.Mesh(new THREE.TorusGeometry(.02, .006, 8, 16), metal);
+    mouth.rotation.x = Math.PI / 2;
+    mouth.position.set(0, -.008, .08);
     this.spoutLocal.copy(mouth.position);
     const handle = new THREE.Group();
-    handle.position.set(0, .07, .018);
-    const knob = new THREE.Mesh(new THREE.CylinderGeometry(.012, .013, .012, 12), glossy('#ff5d8f', .35));
-    // The lever sticks out sideways, so the camera sees it, and it swings when the water turns on.
-    const lever = new THREE.Mesh(new THREE.BoxGeometry(.04, .012, .012), glossy('#ff5d8f', .35));
-    lever.position.x = .026;
+    handle.position.set(0, .078, .016);
+    const pink = glossy('#ff2d86', .25);
+    const knob = new THREE.Mesh(new THREE.CylinderGeometry(.016, .018, .018, 14), pink);
+    const lever = new THREE.Mesh(new THREE.BoxGeometry(.056, .02, .016), pink);
+    lever.name = 'faucet-lever';
+    lever.position.x = .034;
     handle.add(knob, lever);
-    faucet.add(plate, body, spout, mouth, handle);
+    faucet.add(plate, body, elbow, nozzle, mouth, handle);
     return { group: faucet, handle };
   }
   private makeStream() {
     const mesh = new THREE.Mesh(
-      new THREE.CylinderGeometry(.01, .016, .1, 12),
+      new THREE.CylinderGeometry(.012, .018, .07, 12),
       new THREE.MeshStandardMaterial({
         color: '#49c2ff', emissive: '#b7ecff', emissiveIntensity: .45,
         transparent: true, opacity: .88, roughness: .04, depthWrite: false,
@@ -412,7 +428,7 @@ export class Bathroom {
     const mesh = new THREE.Mesh(new THREE.SphereGeometry(radius, 22, 16), material);
     mesh.renderOrder = 4;
     const bubble: BathBubble = {
-      mesh, alive: !burst, x: 0, y: 0, z: 0, radius, speed: .01 + (index % 4) * .003, wait: 0, phase: index * .7, burst,
+      mesh, alive: !burst, x: 0, y: 0, z: 0, radius, speed: .01 + (index % 4) * .003, wait: 0, phase: index * .7, vx: 0, vz: 0, burst,
     };
     if (burst) mesh.visible = false;
     else this.respawn(bubble, index / 8);
@@ -460,6 +476,7 @@ export class Bathroom {
     const handle = new THREE.Mesh(new THREE.CylinderGeometry(.009, .011, .1, 12), glossy('#ff7ab8', .35));
     handle.position.y = .02;
     const grip = new THREE.Mesh(new THREE.CylinderGeometry(.013, .013, .022, 12), glossy('#ffe14a', .4));
+    grip.name = 'wand-grip';
     grip.position.y = -.03;
     const ring = new THREE.Mesh(new THREE.TorusGeometry(.034, .007, 12, 28), glossy('#3d8cff', .22));
     ring.position.y = .095;
@@ -472,10 +489,11 @@ export class Bathroom {
       beads.add(bead);
     }
     wand.add(handle, grip, ring, beads);
-    // Lean the grip on the back rim, with the ring over the water.
-    wand.position.set(-.08, .2, -.16);
-    this.wandRest = -.7;
-    wand.rotation.z = this.wandRest;
+    // Yellow grip sits on the back rim, left of the tap. The ring leans over the water.
+    wand.position.set(-.11, .22, -.22);
+    this.wandLean = .75;
+    this.wandRoll = -.25;
+    wand.rotation.set(this.wandLean, -.6, this.wandRoll);
     return { group: wand, ring };
   }
 }
