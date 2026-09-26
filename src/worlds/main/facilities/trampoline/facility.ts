@@ -29,6 +29,7 @@ export class TrampolineFacility implements Facility {
     ));
   }
   get active() {return this.physics.active;}
+  get group() {return this.visual.group;}
   get laughing() {return this.active&&this.laughStarted;}
   get interactionDistance() {
     return this.physics.nearby?Math.hypot(this.physics.body.center.x-TRAMPOLINE.x,this.physics.body.center.z-TRAMPOLINE.z):Infinity;

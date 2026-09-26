@@ -96,17 +96,28 @@ export async function startGame(stage:(s:string)=>void,fail:(e:unknown)=>void) {
   const reset=()=>{if(worlds.loading)return;sound.stopFacilities();worlds.reset();input.teleport();rig.yaw=worlds.arrivalYaw;baby.resetFace();physicsClock.reset();};
   const input=new Input(camera,renderer.domElement,body,baby.mesh,rig,sound);
   const happy=()=>{baby.cheer();sound.chirp();};
-  input.onTapGround=()=>{if(worlds.loading||worlds.menu.opened||worlds.facilities.active)return;rig.jump();happy();};
+  const dismount=(facility:{interact:()=>boolean})=>{
+    if(!facility.interact())return;
+    input.clear();rig.reset();happy();
+  };
+  input.onTapGround=()=>{
+    if(worlds.loading||worlds.menu.opened)return;
+    const active=worlds.facilities.active;
+    if(active){dismount(active);return;}
+    rig.jump();happy();
+  };
   input.onTapJelly=()=>{rig.squish();happy();};
-  const idleToy=(facility:{readonly id:string;readonly active:boolean;summon:()=>boolean})=>{
+  const playToy=(facility:{readonly id:string;readonly active:boolean;summon:()=>boolean;interact:()=>boolean})=>{
+    if(worlds.loading||worlds.menu.opened)return;
     const owner=worlds.facilities.active;
-    if(owner&&owner.id!==facility.id)return;
+    if(owner?.id===facility.id){dismount(facility);return;}
+    if(owner)return;
     if(facility.summon()){rig.reset();happy();}
   };
   input.toyTaps.push(
-    {center:new THREE.Vector3(SWING.x,.09,SWING.z),radius:.12,use:()=>idleToy(swing)},
-    {center:new THREE.Vector3(TRAMPOLINE.x,.05,TRAMPOLINE.z),radius:.13,use:()=>idleToy(trampoline)},
-    {center:new THREE.Vector3(BED.x,.05,BED.z),radius:.14,use:()=>idleToy(bed)},
+    {center:new THREE.Vector3(SWING.x,.09,SWING.z),radius:.05,object:swing.group,use:()=>playToy(swing)},
+    {center:new THREE.Vector3(TRAMPOLINE.x,.05,TRAMPOLINE.z),radius:.05,object:trampoline.group,use:()=>playToy(trampoline)},
+    {center:new THREE.Vector3(BED.x,.05,BED.z),radius:.05,object:bed.group,use:()=>playToy(bed)},
   );
   input.bodyControlled=()=>worlds.loading||worlds.menu.opened||!!worlds.facilities.active;
   input.menuOpen=()=>worlds.menu.opened;

@@ -96,6 +96,7 @@ export class Facilities {
     if(this.hint.textContent!==hint)this.hint.textContent=hint;
     const mobileAction=candidate.mobileAction??action;
     if(this.button.textContent!==mobileAction)this.button.textContent=mobileAction;
+    if(this.button.getAttribute?.('aria-label')!==mobileAction)this.button.setAttribute?.('aria-label',mobileAction);
     const mode=candidate.active?'leave':'play';
     const dataset=this.button.dataset;
     if(dataset&&dataset.mode!==mode)dataset.mode=mode;

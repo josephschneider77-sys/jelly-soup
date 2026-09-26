@@ -28,9 +28,16 @@ type PointerGrab={
   jellyTap:boolean;
 };
 
-export type ToyTap={center:THREE.Vector3;radius:number;use:()=>void};
+export type ToyTap={center:THREE.Vector3;radius:number;use:()=>void;object?:THREE.Object3D};
 
-type SavedView={pos:THREE.Vector3;target:THREE.Vector3};
+type PendingTap={id:number;x:number;y:number;t:number};
+type PointerPick={kind:'jelly'|'toy'|'floor';toy:ToyTap|null;hit:{t:number;distance:number}|null};
+
+/** A tap is a short, nearly still press. Anything longer is a camera drag. */
+const TAP_PX=12;
+const TAP_MS=400;
+/** Fallback when a toy has no mesh. Large spheres covered the whole view. */
+const TOY_PROXY_RADIUS=.05;
 
 export class Input {
   /** Facilities temporarily own the body while orbit controls remain available. */
@@ -71,7 +78,7 @@ export class Input {
   private readonly scratchSpherical=new THREE.Spherical();
   private readonly scratchOffset=new THREE.Vector3();
   private readonly ndc=new THREE.Vector3();
-  private groundTap:{id:number;x:number;y:number;t:number;view:SavedView}|null=null;
+  private pendingTap:PendingTap|null=null;
   private abort=new AbortController();
   private canvas:HTMLCanvasElement;
   readonly camera:THREE.PerspectiveCamera;
@@ -125,7 +132,7 @@ export class Input {
         e.preventDefault();void sound.unlock().catch(()=>{});button.setPointerCapture(e.pointerId);
         const code=button.dataset.control!;
         this.touchKeys.set(e.pointerId,code);button.classList.add('held');
-        if(code==='Space'&&!this.bodyControlled())this.onTapGround();
+        if(code==='Space')this.onTapGround();
       },{signal});
       const release=(e:PointerEvent)=>{
         this.touchKeys.delete(e.pointerId);button.classList.remove('held');
@@ -182,39 +189,39 @@ export class Input {
   private begin=(e:PointerEvent)=>{
     if(this.menuOpen())return;
     if(e.button!==0||this.grabs.has(e.pointerId))return;
-    if(!this.grabs.size&&this.pickToy(e))return;
-    if(this.bodyControlled())return;
-    if(this.body.grabs.length>=MAX_GRABS)return;
-    // Only touch can add simultaneous grips; desktop mouse/pen keep one grip.
-    if(this.body.grab&&(e.pointerType!=='touch'||[...this.grabs.values()].some(state=>state.pointerType!=='touch')))return;
-    this.eventRay(e);
-    // Exact picking against the same full-resolution deformed surface that is
-    // rendered, but through its refittable BVH instead of Three's O(144k)
-    // triangle scan. This changes no grip position or binding semantics.
-    this.grabBVH.refit();
-    const ray=this.raycaster.ray,o=[ray.origin.x,ray.origin.y,ray.origin.z],d=[ray.direction.x,ray.direction.y,ray.direction.z];
-    const hit=this.grabBVH.hit(o,d);
-    if(!hit) {
-      this.groundTap={id:e.pointerId,x:e.clientX,y:e.clientY,t:performance.now(),view:{pos:this.camera.position.clone(),target:this.controls.target.clone()}};
+    // Never cancel pointerdown. OrbitControls listens on bubble; a capture
+    // stopImmediatePropagation here is what made every drag look dead.
+    const pick=this.pickPointer(e);
+    if(pick.kind==='jelly'&&pick.hit&&!this.bodyControlled()){
+      if(!this.canGrab(e))return;
+      const ray=this.raycaster.ray,jelly=pick.hit;
+      const ix=this.body.surface.indices,offset=jelly.t*3;
+      const face={a:ix[offset],b:ix[offset+1],c:ix[offset+2]};
+      const point=ray.at(jelly.distance,new THREE.Vector3());
+      void this.sound.unlock().catch(()=>{});
+      const grab=surfaceGrab(this.body,face,point);if(!grab){this.armTap(e);return;}
+      this.body.grabs.push(grab);this.body.wake();
+      this.camera.getWorldDirection(this.temp);
+      this.grabs.set(e.pointerId,{
+        grab,pointerType:e.pointerType,
+        plane:new THREE.Plane().setFromNormalAndCoplanarPoint(this.temp,point),rawTarget:point.clone(),
+        releasePending:false,releaseStepsRemaining:0,physicsSteps:0,commandVersion:0,consumedVersion:0,
+        originX:e.clientX,originY:e.clientY,originTime:performance.now(),jellyTap:false,
+      });
+      // Disable before the event reaches OrbitControls on the bubble path.
+      this.controls.enabled=false;
+      this.canvas.setPointerCapture(e.pointerId);this.canvas.classList.add('grabbing');
       return;
     }
-    const ix=this.body.surface.indices,offset=hit.t*3;
-    const face={a:ix[offset],b:ix[offset+1],c:ix[offset+2]};
-    const point=ray.at(hit.distance,new THREE.Vector3());
-    void this.sound.unlock().catch(()=>{});
-    e.preventDefault();e.stopImmediatePropagation();
-    const grab=surfaceGrab(this.body,face,point);if(!grab)return;
-    this.body.grabs.push(grab);this.body.wake();
-    this.camera.getWorldDirection(this.temp);
-    this.grabs.set(e.pointerId,{
-      grab,pointerType:e.pointerType,
-      plane:new THREE.Plane().setFromNormalAndCoplanarPoint(this.temp,point),rawTarget:point.clone(),
-      releasePending:false,releaseStepsRemaining:0,physicsSteps:0,commandVersion:0,consumedVersion:0,
-      originX:e.clientX,originY:e.clientY,originTime:performance.now(),jellyTap:false,
-    });
-    this.controls.enabled=false;
-    this.canvas.setPointerCapture(e.pointerId);this.canvas.classList.add('grabbing');
+    if(this.grabs.size)return;
+    this.armTap(e);
   };
+  private canGrab(e:PointerEvent) {
+    if(this.body.grabs.length>=MAX_GRABS)return false;
+    // Only touch can add simultaneous grips; desktop mouse/pen keep one grip.
+    if(this.body.grab&&(e.pointerType!=='touch'||[...this.grabs.values()].some(state=>state.pointerType!=='touch')))return false;
+    return true;
+  }
   private pointerMove=(e:PointerEvent)=>{
     const state=this.grabs.get(e.pointerId);
     if(state&&!state.releasePending) {
@@ -232,12 +239,16 @@ export class Input {
   };
   private end=(e:PointerEvent)=>{
     const state=this.grabs.get(e.pointerId);
-    if(!state){this.finishGroundTap(e);return;}
+    if(!state){
+      if(e.type==='pointerup')this.finishPendingTap(e);
+      else if(this.pendingTap?.id===e.pointerId)this.pendingTap=null;
+      return;
+    }
     if(state.releasePending)return;
     // pointerup itself may be the only event carrying an abrupt drag endpoint.
     if(e.type==='pointerup')this.captureDragTarget(e,state);
     const moved=Math.hypot(e.clientX-state.originX,e.clientY-state.originY);
-    state.jellyTap=moved<40&&performance.now()-state.originTime<550;
+    state.jellyTap=moved<TAP_PX&&performance.now()-state.originTime<TAP_MS;
     e.preventDefault();e.stopImmediatePropagation();
     // Mark released before releasing capture, which may itself dispatch an event.
     state.releasePending=true;
@@ -246,42 +257,48 @@ export class Input {
     this.syncGrabControls();
     // Retain each released grip until physics consumes its final target sample.
   };
-  private pickToy(e:PointerEvent) {
-    if(!this.toyTaps.length)return false;
-    this.eventRay(e);
+  /** Nearest of the jelly mesh, a toy mesh, or the floor. The jelly wins a tie. */
+  private pickPointer(e:PointerEvent):PointerPick {
+    this.eventRay(e);this.grabBVH.refit();
     const ray=this.raycaster.ray;
-    let best:{use:()=>void;along:number}|null=null;
-    for(const toy of this.toyTaps) {
-      const along=this.temp.copy(toy.center).sub(ray.origin).dot(ray.direction);
-      if(along<=0||ray.distanceToPoint(toy.center)>toy.radius)continue;
-      if(!best||along<best.along)best={use:toy.use,along};
+    const jelly=this.grabBVH.hit([ray.origin.x,ray.origin.y,ray.origin.z],[ray.direction.x,ray.direction.y,ray.direction.z]);
+    const jellyDistance=jelly?.distance??Infinity;
+    let toy:ToyTap|null=null,toyDistance=Infinity;
+    for(const candidate of this.toyTaps) {
+      const distance=this.toyDistance(candidate);
+      if(distance<toyDistance){toy=candidate;toyDistance=distance;}
     }
-    if(!best)return false;
-    this.grabBVH.refit();
-    const o=[ray.origin.x,ray.origin.y,ray.origin.z],d=[ray.direction.x,ray.direction.y,ray.direction.z];
-    const hit=this.grabBVH.hit(o,d);
-    if(hit&&hit.distance<best.along-.01)return false;
-    e.preventDefault();e.stopImmediatePropagation();
-    void this.sound.unlock().catch(()=>{});
-    this.idle=0;best.use();
-    return true;
+    if(jelly&&jellyDistance<=toyDistance)return {kind:'jelly',toy:null,hit:jelly};
+    if(toy)return {kind:'toy',toy,hit:null};
+    return {kind:'floor',toy:null,hit:null};
   }
-  private finishGroundTap(e:PointerEvent) {
-    const tap=this.groundTap;
+  private toyDistance(toy:ToyTap) {
+    if(toy.object) {
+      toy.object.updateWorldMatrix(true,true);
+      const hit=this.raycaster.intersectObject(toy.object,true)[0];
+      return hit?.distance??Infinity;
+    }
+    const radius=Math.min(toy.radius,TOY_PROXY_RADIUS);
+    if(this.scratchOffset.copy(toy.center).sub(this.camera.position).length()<=radius+.02)return Infinity;
+    const along=this.temp.copy(toy.center).sub(this.raycaster.ray.origin).dot(this.raycaster.ray.direction);
+    if(along<=.02||this.raycaster.ray.distanceToPoint(toy.center)>radius)return Infinity;
+    return along;
+  }
+  private armTap(e:PointerEvent) {
+    this.pendingTap={id:e.pointerId,x:e.clientX,y:e.clientY,t:performance.now()};
+    this.idle=0;
+  }
+  private finishPendingTap(e:PointerEvent) {
+    const tap=this.pendingTap;
     if(!tap||tap.id!==e.pointerId)return;
-    this.groundTap=null;
+    this.pendingTap=null;
     const moved=Math.hypot(e.clientX-tap.x,e.clientY-tap.y);
-    if(moved>=40||performance.now()-tap.t>=550||this.bodyControlled())return;
-    const view=tap.view;
-    queueMicrotask(()=>this.restoreTapView(view));
-    this.onTapGround();this.idle=0;
-  }
-  private restoreTapView(view:SavedView) {
-    this.camera.position.copy(view.pos);
-    this.controls.target.copy(view.target);this.follow.copy(view.target);
-    const delta=(this.controls as unknown as {_sphericalDelta?:{set:(x:number,y:number,z:number)=>void}})._sphericalDelta;
-    delta?.set(0,0,0);
-    this.controls.update();
+    if(moved>=TAP_PX||performance.now()-tap.t>=TAP_MS)return;
+    const pick=this.pickPointer(e);
+    this.idle=0;
+    if(pick.kind==='jelly'){this.onTapJelly();return;}
+    if(pick.toy){void this.sound.unlock().catch(()=>{});pick.toy.use();return;}
+    this.onTapGround();
   }
   private syncGrabControls() {
     this.controls.enabled=this.body.grabs.length===0;
@@ -307,7 +324,7 @@ export class Input {
     if(['KeyW','KeyA','KeyS','KeyD','ArrowUp','ArrowLeft','ArrowDown','ArrowRight','Space'].includes(e.code)) {
       e.preventDefault();this.keys.add(e.code);void this.sound.unlock().catch(()=>{});
     }
-    if(e.code==='Space'&&!e.repeat&&!this.bodyControlled())this.onTapGround();
+    if(e.code==='Space'&&!e.repeat)this.onTapGround();
     if(e.code==='Escape')this.finishRelease();
   };
   clear=()=>{
@@ -319,7 +336,7 @@ export class Input {
       this.joystickKnob?.style.setProperty('--joystick-y','0px');joystick?.classList.remove('held');
       if(joystick?.hasPointerCapture(id))joystick.releasePointerCapture(id);
     }
-    this.finishRelease();this.groundTap=null;this.rig.move.set(0,0,0);
+    this.finishRelease();this.pendingTap=null;this.rig.move.set(0,0,0);
     document.querySelectorAll('.held').forEach(el=>el.classList.remove('held'));
   };
   private pressed(...codes:string[]) {
@@ -373,7 +390,7 @@ export class Input {
       const jump=this.jumpElement;if(jump){jump.disabled=riding;jump.style.opacity=riding?'.3':'';jump.setAttribute('aria-label','Jump');const caption=jump.querySelector('span');if(caption)caption.textContent='hop';}
     }
     this.controls.minDistance=this.facilityCameraDistance()??(soccer?.135:.17);
-    const busy=this.orbiting||this.keys.size>0||this.joystickPointer!==null||this.touchKeys.size>0||this.grabs.size>0;
+    const busy=this.orbiting||this.pendingTap!==null||this.keys.size>0||this.joystickPointer!==null||this.touchKeys.size>0||this.grabs.size>0;
     if(busy)this.idle=0;else this.idle+=dt;
     // External resets must never leave pointer capture or orbit state wedged.
     for(const [id,state] of this.grabs)if(!this.body.grabs.includes(state.grab))this.finishRelease(id);
@@ -386,7 +403,8 @@ export class Input {
     this.controls.update();
     this.chase.update(this.camera,this.ridingVehicle()?this.vehicleHeading():undefined,dt);
     this.soccerCamera.update(this.camera,dt,this.soccerCameraObstacles());
-    if(!soccer&&!riding&&(offscreen||this.idle>3.5))this.easeHome(dt,offscreen?4.5:1.6);
+    // A drag sets orbiting before the next frame. Recenter only while the pointer is idle.
+    if(!busy&&!soccer&&!riding&&(offscreen||this.idle>3.5))this.easeHome(dt,offscreen?4.5:1.6);
   }
   private projectedOffscreen() {
     this.ndc.copy(this.body.center);this.ndc.project(this.camera);

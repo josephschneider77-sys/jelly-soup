@@ -21,6 +21,7 @@ export class BedFacility implements Facility {
     shadows.add(this.visual.group,new Box3(new Vector3(BED.x-.066,-.001,BED.z-.082),new Vector3(BED.x+.066,.115,BED.z+.095)));
   }
   get active(){return this.physics.active;}
+  get group(){return this.visual.group;}
   get sleeping(){return this.active;}
   get action(){return this.active?'Get Up':'Go to Bed';}
   get mobileAction(){return this.active?'Get up':'Go to Bed';}

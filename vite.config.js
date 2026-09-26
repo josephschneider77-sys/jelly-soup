@@ -14,16 +14,26 @@ function assetFileName(bundle, rootPath) {
   return loose.length===1?loose[0].fileName:null
 }
 
-function rewriteRootUrls(html, bundle, base) {
+export function rewriteRootUrls(html, bundle, base) {
   const prefix=base.endsWith('/')?base:`${base}/`
-  return html.replace(/\b(href|src)="\/([^"]+)"/g,(match,attr,path) => {
+  const withoutInlined=html.replace(/<link\b[^>]*>/g,tag => {
+    if(!/\brel="preload"/.test(tag))return tag
+    const href=tag.match(/\bhref="([^"]*)"/)?.[1]??''
+    if(href.startsWith('data:'))return ''
+    if(bundle&&href.startsWith('/src/assets/')) {
+      const fileName=assetFileName(bundle,href.slice(1))
+      if(!fileName||String(fileName).startsWith('data:'))return ''
+    }
+    return tag
+  })
+  return withoutInlined.replace(/\b(href|src)="\/([^"]+)"/g,(match,attr,path) => {
     if(!/^(logo\.png|src\/assets\/|src\/main\.ts)/.test(path))return match
     if(bundle&&path.startsWith('src/assets/')) {
       const fileName=assetFileName(bundle,path)
-      if(fileName)return `${attr}="${prefix}${fileName}"`
+      if(fileName&&!String(fileName).startsWith('data:'))return `${attr}="${prefix}${fileName}"`
     }
     return `${attr}="${prefix}${path}"`
-  })
+  }).replace(/<link\b[^>]*>/g,tag => /\brel="preload"/.test(tag)&&/\bhref="data:/.test(tag)?'':tag)
 }
 
 function runtimeModulePreload() {

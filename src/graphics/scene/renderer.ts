@@ -1,9 +1,12 @@
 import * as THREE from 'three/webgpu';
 import type { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { WEBGPU_REQUIRED } from '../../app/startup-error.ts';
 
 export async function createRenderer(fail:(e:unknown)=>void) {
   if(!window.isSecureContext)throw new Error('Please open this game over HTTPS or localhost.');
-  if(!navigator.gpu)throw new Error('This browser does not support WebGPU. Open in a WebGPU-capable browser.');
+  if(!navigator.gpu)throw new Error(WEBGPU_REQUIRED);
+  const adapter=await navigator.gpu.requestAdapter({powerPreference:'high-performance'});
+  if(!adapter)throw new Error(WEBGPU_REQUIRED);
   const renderer=new THREE.WebGPURenderer({antialias:true,alpha:false,powerPreference:'high-performance'});
   // r185 normally installs a WebGL fallback factory. Reject before it is invoked.
   (renderer as unknown as {_getFallback:null})._getFallback=null;
