@@ -35,7 +35,7 @@ export async function createRenderer(fail:(e:unknown)=>void) {
   renderer.outputColorSpace=THREE.SRGBColorSpace;
   renderer.toneMapping=THREE.AgXToneMapping;renderer.toneMappingExposure=1.12;
   renderer.domElement.tabIndex=0;
-  renderer.domElement.setAttribute('aria-label','Jelly Soup. Tap to hop. Tap the jelly for a squish. Tap the swing, trampoline, or bed to play.');
+  renderer.domElement.setAttribute('aria-label','Jelly Soup Bath Time. Tap the jelly, the ducks, the bubbles, or the faucet.');
   return renderer;
 }
 

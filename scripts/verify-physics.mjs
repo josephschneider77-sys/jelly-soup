@@ -178,5 +178,3 @@ assert.equal(optics.lightTexture,optics.causticTarget.texture,'table samples the
 assert(optics.verticesNode&&optics.boundsNode&&optics.receiverTarget&&optics.refine,'geometric GPU caustic buffers and receiver atlas are configured');
 optics.dispose();
 console.log('PASS — settle, walk, turn, jump, grab, release, recovery, optical shadow/thickness and GPU caustic graph; seconds:',(performance.now()-started)/1000);
-// Keep facility coverage modular while including the bed in the main command.
-await import('./verify-bed.mjs');

@@ -5,40 +5,25 @@
     <link rel="icon" type="image/png" href="/logo.png" />
     <link rel="canonical" href="https://josephschneider77-sys.github.io/jelly-soup/" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <meta name="theme-color" content="#fff4c8" />
-    <script>
-      document.documentElement.dataset.jellyPlatform=matchMedia('(pointer: coarse)').matches?'mobile':'desktop'
-    </script>
-    <!-- Every item below is mandatory for the first playable frame. Discover
-         them before the module graph/WebGPU initialization so transfer/decode
-         overlaps boot instead of starting only after renderer creation. -->
-    <link rel="preload" href="/src/assets/bg_room_studio.rgba16f" as="fetch" crossorigin="anonymous" />
-    <link rel="preload" href="/src/assets/night.rgba16f" as="fetch" crossorigin="anonymous" />
+    <meta name="theme-color" content="#d7f3ff" />
     <link rel="preload" href="/src/assets/model/jelly-baby.bin" as="fetch" crossorigin="anonymous" />
     <link rel="preload" href="/src/assets/model/jelly-baby.json" as="fetch" crossorigin="anonymous" />
-    <link rel="preload" href="/src/assets/wood_texture/wood_base.jpg" as="image" crossorigin="anonymous" media="(pointer: fine), (pointer: none)" data-jelly-platform="desktop" />
-    <link rel="preload" href="/src/assets/wood_texture/wood_base_4k.jpg" as="image" crossorigin="anonymous" media="(pointer: coarse)" data-jelly-platform="mobile" />
-    <link rel="preload" href="/src/assets/wood_texture/wood_normal.png" as="image" crossorigin="anonymous" />
-    <link rel="preload" href="/src/assets/wood_texture/wood_roughness.jpg" as="image" crossorigin="anonymous" />
-    <script>
-      for(const link of document.querySelectorAll('[data-jelly-platform]'))if(link.dataset.jellyPlatform!==document.documentElement.dataset.jellyPlatform)link.remove()
-    </script>
-    <meta name="description" content="A small, soft world. Wander, hop, stretch, and let go." />
+    <meta name="description" content="A soft jelly in a bright bathtub. Float, splash, and pop bubbles." />
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://josephschneider77-sys.github.io/jelly-soup/" />
-    <meta property="og:title" content="Jelly Soup" />
-    <meta property="og:description" content="A small, soft world. Wander, hop, stretch, and let go." />
+    <meta property="og:title" content="Jelly Soup: Bath Time" />
+    <meta property="og:description" content="A soft jelly in a bright bathtub. Float, splash, and pop bubbles." />
     <meta property="og:image" content="https://josephschneider77-sys.github.io/jelly-soup/og_image.png" />
-    <meta property="og:image:alt" content="Jelly Soup" />
+    <meta property="og:image:alt" content="Jelly Soup: Bath Time" />
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="Jelly Soup" />
-    <meta name="twitter:description" content="A small, soft world. Wander, hop, stretch, and let go." />
+    <meta name="twitter:title" content="Jelly Soup: Bath Time" />
+    <meta name="twitter:description" content="A soft jelly in a bright bathtub. Float, splash, and pop bubbles." />
     <meta name="twitter:image" content="https://josephschneider77-sys.github.io/jelly-soup/og_image.png" />
-    <title>Jelly Soup</title>
+    <title>Jelly Soup: Bath Time</title>
   </head>
   <body>
     <div id="app"></div>
-    <noscript>Jelly Soup needs JavaScript and a WebGPU-capable browser.</noscript>
+    <noscript>Jelly Soup: Bath Time needs JavaScript and a WebGPU-capable browser.</noscript>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
