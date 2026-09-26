@@ -19,7 +19,8 @@ export const BATH_ORBIT = { minDistance: .2, maxDistance: 1.6, minPolar: .3, max
 export const DUCK_HOME: ReadonlyArray<readonly [number, number]> = [
   [-.1, .015],
   [.09, -.02],
-  [0, -.1],
+  // In front of the jelly. The spout splash owns the spot under the tap.
+  [.02, .09],
 ];
 export const CUP_HOME = { x: -.09, z: -.05 };
 export const SPONGE_HOME = { x: .09, z: .04 };

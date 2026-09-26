@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { BoxGeometry, Mesh, PerspectiveCamera, Vector3 } from 'three/webgpu';
+import { BoxGeometry, Group, Mesh, PerspectiveCamera, Vector3 } from 'three/webgpu';
 import { Input } from '../src/app/input.ts';
 import { Locomotion } from '../src/app/locomotion.ts';
 import { PHYS } from '../src/physics/constants.js';
@@ -33,6 +33,8 @@ assert.match(runtime,/get\('qc'\) === '1'/);
 assert.match(startup,/This game needs a browser with WebGPU/);
 assert.match(html,/Jelly Soup: Bath Time/);
 assert.match(runtime,/bath\.faucet/);
+assert.match(runtime,/label: 'wand'/);
+assert.match(runtime,/bath\.blow\(\)/);
 assert.match(runtime,/bath\.ducks/);
 assert.match(runtime,/bath\.bubbles/);
 assert.match(runtime,/onTapJelly/);
@@ -327,4 +329,37 @@ function releaseGrab() {
   assert.equal(stolen,0,'a tap just outside the jelly is not the neighbouring toy');
   assert.equal(hits.jelly,1,'a tap just outside the jelly still squishes');
 }
-console.log('Bath taps: faucet, duck, bubble, and jelly.');
+{
+  input.clear();
+  const faucetGroup=new Group();
+  const handle=new Mesh(new BoxGeometry(.04,.03,.03));
+  handle.position.set(-.36,.3,.22);
+  const spout=new Mesh(new BoxGeometry(.03,.03,.08));
+  spout.position.set(-.36,.22,.12);
+  faucetGroup.add(handle,spout);
+  faucetGroup.updateWorldMatrix(true,true);
+  let toggles=0;
+  input.toyTaps.push({center:new Vector3(-.36,.26,.17),radius:.05,object:faucetGroup,label:'faucet',use:()=>{toggles++;}});
+  const handlePixel=project(-.36,.3,.22);
+  tap(handlePixel.x,handlePixel.y);
+  assert.equal(toggles,1,'tapping the faucet handle toggles the water');
+  const spoutPixel=project(-.36,.22,.12);
+  tap(spoutPixel.x,spoutPixel.y);
+  assert.equal(toggles,2,'tapping the faucet spout toggles the water');
+}
+{
+  input.clear();
+  const wandGroup=new Group();
+  const ring=new Mesh(new BoxGeometry(.07,.07,.02));
+  ring.position.set(.4,.28,.24);
+  const stick=new Mesh(new BoxGeometry(.02,.1,.02));
+  stick.position.set(.4,.18,.24);
+  wandGroup.add(ring,stick);
+  wandGroup.updateWorldMatrix(true,true);
+  let blows=0;
+  input.toyTaps.push({center:new Vector3(.4,.28,.24),radius:.06,object:wandGroup,label:'wand',use:()=>{blows++;}});
+  const pixel=project(.4,.28,.24);
+  tap(pixel.x,pixel.y);
+  assert.equal(blows,1,'tapping the bubble wand ring blows bubbles');
+}
+console.log('Bath taps: faucet, duck, bubble, wand, and jelly.');

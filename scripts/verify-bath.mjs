@@ -82,11 +82,12 @@ assert(pushed.center.z<z0+.005,`faucet stream does not drive the jelly into the 
     ['jelly',0,.12,0],
     ['cup',CUP_HOME.x,.16,CUP_HOME.z],
     ['sponge',SPONGE_HOME.x,.15,SPONGE_HOME.z],
-    ['faucet',0,.28,-.16],
+    ['faucet',.05,.24,-.18],
+    ['spout',0,.15,-.12],
     ['duck-left',DUCK_HOME[0][0],.13,DUCK_HOME[0][1]],
     ['duck-right',DUCK_HOME[1][0],.13,DUCK_HOME[1][1]],
     ['duck-back',DUCK_HOME[2][0],.13,DUCK_HOME[2][1]],
-    ['wand',.05,.2,-.11],
+    ['wand',-.1,.24,-.19],
   ];
   const wide=bathFrame(1280/800);
   assert(Math.abs(wide.fov-36.9)<1,'a wide screen keeps the three-quarter field of view');
@@ -130,14 +131,19 @@ assert(pushed.center.z<z0+.005,`faucet stream does not drive the jelly into the 
   assert.match(runtime,/captureHome\(\)/);
   assert.match(bath,/cup\.rotation\.z = -tilt/);
   assert.match(bath,/cupStream\.visible/);
-  assert.match(bath,/speed: \.008/);
+  assert.match(bath,/speed: \.01/);
   assert.doesNotMatch(input,/follow\.lerp/);
   assert.match(input,/controls\.target\.copy\(this\.anchor\)/);
   assert.match(runtime,/containInTub\(body, roamX\)/);
   assert.match(input,/padded:false/);
   assert.match(runtime,/yieldsToToys: true/);
   assert.match(bath,/opacityNode/);
-  assert.match(bath,/float\(\.45\)/);
+  assert.match(bath,/float\(\.7\)/);
+  assert.match(bath,/handle\.rotation\.y/);
+  assert.match(bath,/splashRing\.visible = on/);
+  assert.match(runtime,/faucetTip/);
+  assert.match(runtime,/label: 'wand'/);
+  assert.match(runtime,/bath\.blow\(\)/);
 }
 {
   for(const [w,h] of [[390,844],[1024,768],[1280,800]]){
@@ -168,5 +174,87 @@ assert(pushed.center.z<z0+.005,`faucet stream does not drive the jelly into the 
   let maxX=0;
   for(let i=0;i<held.mass.length;i++)maxX=Math.max(maxX,Math.abs(held.x[i*3]));
   assert(maxX<=phone+1e-6,`six seconds of faucet stays inside the phone (${maxX.toFixed(3)} of ${phone.toFixed(3)})`);
+}
+{
+  globalThis.document={createElement(){return {width:256,height:256,getContext(){return {fillRect(){},fillStyle:''};}};}};
+  const {Bathroom}=await import('../src/app/bath/bathroom.ts');
+  const bath=new Bathroom();
+  const projectBounds=(camera,root)=>{
+    root.updateWorldMatrix(true,true);
+    const point=new Vector3();
+    let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity,count=0;
+    root.traverse(obj=>{
+      if(!obj.isMesh||obj.visible===false)return;
+      const pos=obj.geometry.attributes.position;
+      for(let i=0;i<pos.count;i++){
+        point.fromBufferAttribute(pos,i).applyMatrix4(obj.matrixWorld).project(camera);
+        minX=Math.min(minX,point.x);maxX=Math.max(maxX,point.x);
+        minY=Math.min(minY,point.y);maxY=Math.max(maxY,point.y);
+        count++;
+      }
+    });
+    assert(count>0,'the prop has a visible mesh');
+    return {minX,minY,maxX,maxY};
+  };
+  const overlaps=(a,b)=>a.minX<b.maxX&&a.maxX>b.minX&&a.minY<b.maxY&&a.maxY>b.minY;
+  const cameras=[[390,844],[1024,768],[1280,800]].map(([w,h])=>{
+    const frame=bathFrame(w/h);
+    const camera=new PerspectiveCamera(frame.fov,w/h,.02,12);
+    camera.position.set(frame.x,frame.y,frame.z);
+    camera.lookAt(frame.lookX,frame.lookY,frame.lookZ);
+    camera.updateMatrixWorld(true);
+    return {w,h,camera};
+  });
+  const assertClear=(label)=>{
+    for(const {w,h,camera} of cameras){
+      const wand=projectBounds(camera,bath.wand);
+      const faucet=projectBounds(camera,bath.faucet);
+      assert(!overlaps(wand,faucet),`${label}: wand and faucet stay apart at ${w}x${h}`);
+      assert(wand.minX>-.9&&wand.maxX<.9&&wand.minY>-.92&&wand.maxY<.92,`the wand stays on screen at ${w}x${h}`);
+    }
+  };
+  let ring=null;
+  bath.wand.traverse(obj=>{if(obj.name==='wand-ring')ring=obj;});
+  {
+    const phone=cameras.find(entry=>entry.w===390);
+    const box=projectBounds(phone.camera,ring);
+    const width=(box.maxX-box.minX)/2*390,height=(box.maxY-box.minY)/2*844;
+    assert(Math.min(width,height)/Math.max(width,height)>.75,`the wand ring faces the phone (${width.toFixed(0)}x${height.toFixed(0)})`);
+  }
+  assertClear('resting');
+  bath.setFaucet(true);
+  bath.update(1/60,0);
+  assertClear('water running');
+  let splash=null;
+  bath.faucet.traverse(obj=>{if(obj.name==='faucet-splash')splash=obj;});
+  for(const {w,h,camera} of cameras){
+    assert(!overlaps(projectBounds(camera,bath.ducks[2].group),projectBounds(camera,splash)),`the duck stays off the splash at ${w}x${h}`);
+  }
+  const restLean=bath.wand.rotation.x;
+  bath.wand.rotation.x=restLean+.21;
+  assertClear('wand waved forward');
+  bath.wand.rotation.x=restLean-.21;
+  assertClear('wand waved back');
+  bath.wand.rotation.x=restLean;
+  let grip=null;
+  bath.wand.traverse(obj=>{if(obj.name==='wand-grip')grip=obj;});
+  grip.updateWorldMatrix(true,true);
+  const corner=new Vector3();
+  let gripMinY=Infinity,gripMinZ=Infinity,gripMaxZ=-Infinity;
+  const gripPos=grip.geometry.attributes.position;
+  for(let i=0;i<gripPos.count;i++){
+    corner.fromBufferAttribute(gripPos,i).applyMatrix4(grip.matrixWorld);
+    gripMinY=Math.min(gripMinY,corner.y);
+    gripMinZ=Math.min(gripMinZ,corner.z);
+    gripMaxZ=Math.max(gripMaxZ,corner.z);
+  }
+  assert(Math.abs(gripMinY-.185)<.012,`the wand grip sits on the tub rim (${gripMinY.toFixed(3)})`);
+  assert(gripMinZ<-.21&&gripMaxZ>-.27,`the wand grip is on the back rim (${gripMinZ.toFixed(3)} to ${gripMaxZ.toFixed(3)})`);
+  bath.blow();
+  const burst=bath.bubbles.filter(bubble=>bubble.burst);
+  assert.equal(burst.length,6,'the wand blows six bubbles');
+  assert(burst.every(bubble=>bubble.alive&&bubble.mesh.visible),'all six wand bubbles are visible');
+  for(let step=0;step<180;step++)bath.update(1/60,step/60);
+  assert(burst.every(bubble=>bubble.alive&&bubble.mesh.visible),'wand bubbles last at least three seconds');
 }
 console.log('Bath float and faucet push.');
