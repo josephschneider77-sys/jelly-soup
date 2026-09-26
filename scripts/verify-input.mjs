@@ -277,4 +277,37 @@ function releaseGrab() {
   tap(pixel.x,pixel.y);
   assert.equal(padded,1,'a near miss within 5 cm still hits the toy');
 }
+{
+  input.clear();
+  const spongeMesh=new Mesh(new BoxGeometry(.06,.04,.04));
+  spongeMesh.position.set(.02,.16,.02);
+  spongeMesh.updateMatrixWorld(true);
+  const duckMesh=new Mesh(new BoxGeometry(.04,.04,.04));
+  duckMesh.position.set(.075,.16,.02);
+  duckMesh.updateMatrixWorld(true);
+  let sponge=0,nearbyDuck=0;
+  input.toyTaps.push({center:spongeMesh.position.clone(),radius:.06,object:spongeMesh,label:'sponge',yieldsToJelly:true,use:()=>{sponge++;}});
+  input.toyTaps.push({center:duckMesh.position.clone(),radius:.06,object:duckMesh,label:'duck',use:()=>{nearbyDuck++;}});
+  const pixel=project(.02,.16,.02);
+  tap(pixel.x,pixel.y);
+  assert.equal(nearbyDuck,0,'a duck within 6 cm does not steal the sponge');
+  assert.equal(sponge,1,'a press on the sponge centre picks the sponge');
+}
+{
+  input.clear();
+  input.onTapJelly=()=>{hits.jelly++;};
+  hits.jelly=0;
+  const spot=body.center.clone();
+  spot.x+=.09;
+  const beside=new Mesh(new BoxGeometry(.03,.03,.03));
+  beside.position.copy(spot).add(new Vector3(.05,0,0));
+  beside.updateMatrixWorld(true);
+  let stolen=0;
+  input.toyTaps.push({center:beside.position.clone(),radius:.06,object:beside,use:()=>{stolen++;}});
+  const pixel=project(spot.x,spot.y,spot.z);
+  tap(pixel.x,pixel.y);
+  releaseGrab();
+  assert.equal(stolen,0,'a tap just outside the jelly is not the neighbouring toy');
+  assert.equal(hits.jelly,1,'a tap just outside the jelly still squishes');
+}
 console.log('Bath taps: faucet, duck, bubble, and jelly.');

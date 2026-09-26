@@ -1,3 +1,6 @@
+import { PerspectiveCamera, Vector3 } from 'three/webgpu';
+import { TUB } from './forces.ts';
+
 /** Shared bath framing so the toys stay big enough to tap on every screen. */
 
 export const BATH_HOME = { x: 0, y: .7, z: .82, lookX: 0, lookY: .09, lookZ: 0 };
@@ -47,4 +50,36 @@ export function bathFrame(aspect: number): BathFrame {
     return { fov: BATH_PORTRAIT.fov, x: BATH_PORTRAIT.x, y: BATH_PORTRAIT.y, z: BATH_PORTRAIT.z, lookX, lookY, lookZ };
   }
   return { fov: bathFov(aspect), x: BATH_HOME.x, y: BATH_HOME.y, z: BATH_HOME.z, lookX, lookY, lookZ };
+}
+
+const roamCamera = new PerspectiveCamera(50, 1, .02, 12);
+const roamPoint = new Vector3();
+
+/**
+ * Largest |x| at the waterline that still projects inside the home view.
+ * The jelly and ducks clamp to this so a faucet push cannot leave the screen.
+ */
+export function screenHalfX(aspect: number, ndcLimit = .86) {
+  const frame = bathFrame(aspect);
+  const safeAspect = Math.max(aspect, .2);
+  roamCamera.fov = frame.fov;
+  roamCamera.aspect = safeAspect;
+  roamCamera.position.set(frame.x, frame.y, frame.z);
+  roamCamera.lookAt(frame.lookX, frame.lookY, frame.lookZ);
+  roamCamera.updateProjectionMatrix();
+  roamCamera.updateMatrixWorld(true);
+  const y = TUB.restLevel;
+  let half = TUB.halfX;
+  for (const z of [-TUB.halfZ + .02, 0, TUB.halfZ - .02]) {
+    let lo = 0, hi = TUB.halfX;
+    for (let i = 0; i < 16; i++) {
+      const mid = (lo + hi) / 2;
+      roamPoint.set(mid, y, z).project(roamCamera);
+      const inside = roamPoint.z > 0 && roamPoint.z < 1 && Math.abs(roamPoint.x) <= ndcLimit && Math.abs(roamPoint.y) <= .96;
+      if (inside) lo = mid;
+      else hi = mid;
+    }
+    half = Math.min(half, lo);
+  }
+  return half;
 }

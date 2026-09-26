@@ -51,6 +51,7 @@ export class Bathroom {
   private level = TUB.restLevel;
   private faucetOn = false;
   private pourLeft = 0;
+  private roamX = TUB.halfX;
   private spongeHeld = false;
   private spongeReturning = false;
   private readonly pourDuration = .9;
@@ -99,6 +100,8 @@ export class Bathroom {
   releaseSponge() { this.spongeHeld = false; this.spongeReturning = true; }
   /** Tip the cup and run a stream. The caller also nudges the jelly. */
   pour() { this.pourLeft = this.pourDuration; }
+  /** Visible half-width at the waterline. Bubbles stay inside it. */
+  setRoam(halfX: number) { this.roamX = halfX; }
   update(dt: number, timeSeconds: number) {
     this.stream.scale.y = this.faucetOn ? .85 + Math.sin(timeSeconds * 28) * .08 : 1;
     this.stream.position.y = this.faucetOn ? .02 - this.stream.scale.y * .08 : .02;
@@ -113,7 +116,8 @@ export class Bathroom {
       bubble.y += bubble.speed * dt;
       bubble.x += Math.sin(timeSeconds * .7 + bubble.phase) * .006 * dt;
       bubble.z += Math.cos(timeSeconds * .5 + bubble.phase) * .004 * dt;
-      bubble.x = THREE.MathUtils.clamp(bubble.x, -.12, .12);
+      const bubbleLimit = Math.min(.12, Math.max(.05, this.roamX - bubble.radius));
+      bubble.x = THREE.MathUtils.clamp(bubble.x, -bubbleLimit, bubbleLimit);
       bubble.z = THREE.MathUtils.clamp(bubble.z, -.12, .05);
       if (Math.abs(bubble.x) < .06 && bubble.z > -.03) bubble.z = -.08;
       bubble.mesh.position.set(bubble.x, bubble.y, bubble.z);
@@ -293,9 +297,8 @@ export class Bathroom {
     const radius = .034 + (index % 3) * .008;
     const mesh = new THREE.Mesh(
       new THREE.SphereGeometry(radius, 14, 10),
-      new THREE.MeshStandardMaterial({
-        color: '#eaf8ff', emissive: '#d7f2ff', emissiveIntensity: .25,
-        transparent: true, opacity: .42, roughness: .05, depthWrite: false,
+      new THREE.MeshBasicMaterial({
+        color: '#8fd4f2', transparent: true, opacity: .2, depthWrite: false,
       }),
     );
     const bubble: BathBubble = {

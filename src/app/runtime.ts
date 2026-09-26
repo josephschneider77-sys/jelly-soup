@@ -7,7 +7,7 @@ import { Locomotion } from './locomotion.ts';
 import { JellySound } from './sound.ts';
 import { Bathroom, type BathBubble, type BathDuck } from './bath/bathroom.ts';
 import { applyBathForces, containInTub, placeInTub, pourOn, TUB, type FaucetPush } from './bath/forces.ts';
-import { BATH_HOME } from './bath/layout.ts';
+import { BATH_HOME, screenHalfX } from './bath/layout.ts';
 import { Baby } from '../graphics/character/baby.ts';
 import { createRenderer, resizeView } from '../graphics/scene/renderer.ts';
 import { PHYS } from '../physics/constants.js';
@@ -59,6 +59,8 @@ export async function startGame(stage: (s: string) => void, fail: (e: unknown) =
   const spongeCenter = new THREE.Vector3();
   const cupCenter = new THREE.Vector3();
   const spongeOffset = new THREE.Vector3();
+  let roamX = TUB.halfX;
+  const roam = (inset: number) => Math.min(TUB.halfX - .02, Math.max(.05, roamX - inset));
 
   const giggle = () => {
     if (giggleWait > 0) return;
@@ -112,7 +114,8 @@ export async function startGame(stage: (s: string) => void, fail: (e: unknown) =
         note('duck');
         if (phase === 'start') { duck.held = true; offset.set(duck.x - point.x, 0, duck.z - point.z); }
         if (phase === 'end') { duck.held = false; return; }
-        duck.x = THREE.MathUtils.clamp(point.x + offset.x, -TUB.halfX + .03, TUB.halfX - .03);
+        const xWall = roam(.03);
+        duck.x = THREE.MathUtils.clamp(point.x + offset.x, -xWall, xWall);
         duck.z = THREE.MathUtils.clamp(point.z + offset.z, -TUB.halfZ + .03, TUB.halfZ - .03);
         duck.vx = 0; duck.vz = 0;
         duck.group.position.set(duck.x, level + .02, duck.z);
@@ -133,7 +136,8 @@ export async function startGame(stage: (s: string) => void, fail: (e: unknown) =
         bath.holdSponge();
         spongeOffset.copy(bath.sponge.group.position).sub(point);
       }
-      const x = THREE.MathUtils.clamp(point.x + spongeOffset.x, -TUB.halfX + .04, TUB.halfX - .04);
+      const xWall = roam(.04);
+      const x = THREE.MathUtils.clamp(point.x + spongeOffset.x, -xWall, xWall);
       const z = THREE.MathUtils.clamp(point.z + spongeOffset.z, -TUB.halfZ + .04, TUB.halfZ - .04);
       bath.sponge.group.position.set(x, level + .045, z);
       spongeCenter.copy(bath.sponge.group.position);
@@ -200,7 +204,8 @@ export async function startGame(stage: (s: string) => void, fail: (e: unknown) =
       }
     }
     duck.vx *= Math.exp(-1.4 * h); duck.vz *= Math.exp(-1.4 * h);
-    duck.x = THREE.MathUtils.clamp(duck.x + duck.vx * h, -TUB.halfX + .04, TUB.halfX - .04);
+    const xWall = roam(.03);
+    duck.x = THREE.MathUtils.clamp(duck.x + duck.vx * h, -xWall, xWall);
     duck.z = THREE.MathUtils.clamp(duck.z + duck.vz * h, -TUB.halfZ + .04, TUB.halfZ - .04);
     duck.group.position.set(duck.x, level + .02 + Math.sin(simTime * 2 + duck.phase) * .004, duck.z);
     duck.group.rotation.y = Math.sin(simTime * .7 + duck.phase) * .4;
@@ -225,6 +230,8 @@ export async function startGame(stage: (s: string) => void, fail: (e: unknown) =
   const resize = () => {
     resizeView(renderer, camera, input.controls, 1.5);
     input.captureHome();
+    roamX = screenHalfX(camera.aspect);
+    bath.setRoam(roamX);
   };
   resize();
   const resizeObserver = new ResizeObserver(resize);
@@ -255,7 +262,7 @@ export async function startGame(stage: (s: string) => void, fail: (e: unknown) =
       const motion = applyBathForces(body, level, PHYS.step, faucet, simTime);
       stepDucks(PHYS.step);
       body.step(PHYS.step);
-      containInTub(body);
+      containInTub(body, roamX);
       input.afterPhysicsStep();
       if (motion.speed > .35) ripple = Math.min(1, ripple + motion.speed * .04);
     });

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { PerspectiveCamera, Vector3 } from 'three/webgpu';
-import { bathFrame, CUP_HOME, DUCK_HOME, SPONGE_HOME } from '../src/app/bath/layout.ts';
+import { bathFrame, CUP_HOME, DUCK_HOME, screenHalfX, SPONGE_HOME } from '../src/app/bath/layout.ts';
 import { applyBathForces, containInTub, placeInTub, TUB } from '../src/app/bath/forces.ts';
 import { Locomotion } from '../src/app/locomotion.ts';
 import { Baby } from '../src/graphics/character/baby.ts';
@@ -133,5 +133,38 @@ assert(pushed.center.z<z0+.005,`faucet stream does not drive the jelly into the 
   assert.match(bath,/speed: \.008/);
   assert.doesNotMatch(input,/follow\.lerp/);
   assert.match(input,/controls\.target\.copy\(this\.anchor\)/);
+  assert.match(runtime,/containInTub\(body, roamX\)/);
+  assert.match(input,/padded:false/);
+  assert.match(bath,/opacity: \.2/);
+}
+{
+  for(const [w,h] of [[390,844],[1024,768],[1280,800]]){
+    const half=screenHalfX(w/h);
+    const frame=bathFrame(w/h);
+    const camera=new PerspectiveCamera(frame.fov,w/h,.02,12);
+    camera.position.set(frame.x,frame.y,frame.z);
+    camera.lookAt(frame.lookX,frame.lookY,frame.lookZ);
+    camera.updateMatrixWorld(true);
+    for(const z of [-.12,0,.1]){
+      for(const x of [-half,half]){
+        const ndc=new Vector3(x,TUB.restLevel,z).project(camera);
+        assert(Math.abs(ndc.x)<.95&&Math.abs(ndc.y)<.98&&ndc.z>0&&ndc.z<1,`roam bound stays on screen at ${w}x${h} (${ndc.x.toFixed(2)},${ndc.y.toFixed(2)})`);
+      }
+    }
+    assert(half<=TUB.halfX+.0001,`roam stays inside the tub at ${w}x${h}`);
+  }
+  const phone=screenHalfX(390/844);
+  assert(phone<.16,`the phone play width is the visible band (${phone.toFixed(3)})`);
+  const held=new SoftBody(loadModel());
+  placeInTub(held,.09);
+  const push={on:true,x:0,z:-.1};
+  for(let i=0;i<1440;i++){
+    applyBathForces(held,TUB.restLevel,PHYS.step,push,i*PHYS.step);
+    held.step(PHYS.step);
+    containInTub(held,phone);
+  }
+  let maxX=0;
+  for(let i=0;i<held.mass.length;i++)maxX=Math.max(maxX,Math.abs(held.x[i*3]));
+  assert(maxX<=phone+1e-6,`six seconds of faucet stays inside the phone (${maxX.toFixed(3)} of ${phone.toFixed(3)})`);
 }
 console.log('Bath float and faucet push.');

@@ -30,7 +30,7 @@ export type ToyTap={
   object?:THREE.Object3D;
   /** Shown by the qc=1 probe while this toy is held. */
   label?:string;
-  /** Bubbles sit in front of the jelly. A hit on both still picks the jelly. */
+  /** A real hit on this toy loses to the jelly, and only to the jelly. */
   yieldsToJelly?:boolean;
   /** Drag on a plane through center.y. Pointer-down still reaches OrbitControls. */
   drag?:(phase:'start'|'move'|'end',point:THREE.Vector3)=>void;
@@ -44,6 +44,8 @@ const TAP_PX=24;
 const TAP_MS=600;
 /** Near misses within this distance still count. A larger sphere used to cover the whole view. */
 const TOY_PROXY_RADIUS=.05;
+/** Jelly half-width is about 5 cm, so this reaches a few centimetres past the surface. */
+const JELLY_NEAR=.1;
 
 export class Input {
   /** While true, taps still land but the body is not grabbed. */
@@ -232,24 +234,39 @@ export class Input {
     this.syncGrabControls();
     // Retain each released grip until physics consumes its final target sample.
   };
-  /** Nearest visible toy, unless a bubble is only in front of the jelly. */
+  /**
+   * A real mesh hit beats a near miss. The sponge yields to the jelly only,
+   * so a duck's pad cannot steal a press that lands on the sponge.
+   */
   private pickPointer(e:PointerEvent):PointerPick {
     this.eventRay(e);this.grabBVH.refit();
     const ray=this.raycaster.ray;
     const jelly=this.grabBVH.hit([ray.origin.x,ray.origin.y,ray.origin.z],[ray.direction.x,ray.direction.y,ray.direction.z]);
     const jellyDistance=jelly?.distance??Infinity;
     let solid:ToyTap|null=null,solidDistance=Infinity,soft:ToyTap|null=null,softDistance=Infinity;
+    let padSolid:ToyTap|null=null,padSolidDistance=Infinity,padSoft:ToyTap|null=null,padSoftDistance=Infinity;
     for(const candidate of this.toyTaps) {
       if(!this.toyVisible(candidate))continue;
-      const distance=this.toyDistance(candidate);
-      if(candidate.yieldsToJelly){if(distance<softDistance){soft=candidate;softDistance=distance;}}
-      else if(distance<solidDistance){solid=candidate;solidDistance=distance;}
+      const hit=this.toyHit(candidate);
+      if(!hit)continue;
+      if(hit.padded){
+        if(candidate.yieldsToJelly){if(hit.distance<padSoftDistance){padSoft=candidate;padSoftDistance=hit.distance;}}
+        else if(hit.distance<padSolidDistance){padSolid=candidate;padSolidDistance=hit.distance;}
+      } else if(candidate.yieldsToJelly){
+        if(hit.distance<softDistance){soft=candidate;softDistance=hit.distance;}
+      } else if(hit.distance<solidDistance){solid=candidate;solidDistance=hit.distance;}
     }
-    if(jelly&&jellyDistance<=solidDistance)return {kind:'jelly',toy:null,hit:jelly};
-    if(solid)return {kind:'toy',toy:solid,hit:null};
-    if(jelly)return {kind:'jelly',toy:null,hit:jelly};
-    if(soft)return {kind:'toy',toy:soft,hit:null};
+    const mesh=this.nearer(solid,solidDistance,soft,softDistance);
+    if(jelly&&(!mesh.toy||mesh.toy.yieldsToJelly||jellyDistance<=mesh.distance))return {kind:'jelly',toy:null,hit:jelly};
+    if(mesh.toy)return {kind:'toy',toy:mesh.toy,hit:null};
+    if(this.jellyNear())return {kind:'jelly',toy:null,hit:null};
+    const pad=this.nearer(padSolid,padSolidDistance,padSoft,padSoftDistance);
+    if(pad.toy)return {kind:'toy',toy:pad.toy,hit:null};
     return {kind:'floor',toy:null,hit:null};
+  }
+  private nearer(primary:ToyTap|null,primaryDistance:number,secondary:ToyTap|null,secondaryDistance:number) {
+    if(primary&&(!secondary||primaryDistance<=secondaryDistance))return {toy:primary,distance:primaryDistance};
+    return {toy:secondary,distance:secondaryDistance};
   }
   private toyVisible(toy:ToyTap) {
     let node=toy.object??null;
@@ -261,17 +278,23 @@ export class Input {
     while(node){if(node.visible===false)return false;node=node.parent;}
     return true;
   }
-  private toyDistance(toy:ToyTap) {
+  private toyHit(toy:ToyTap):{distance:number;padded:boolean}|null {
     const pad=Math.min(.08,Math.max(toy.radius,TOY_PROXY_RADIUS));
     if(toy.object) {
-      if(!this.toyVisible(toy))return Infinity;
+      if(!this.toyVisible(toy))return null;
       toy.object.updateWorldMatrix(true,true);
       const hit=this.raycaster.intersectObject(toy.object,true).find(item=>this.hitVisible(item.object));
-      if(hit)return hit.distance;
-    } else if(this.scratchOffset.copy(toy.center).sub(this.camera.position).length()<=pad+.02) return Infinity;
+      if(hit)return {distance:hit.distance,padded:false};
+    } else if(this.scratchOffset.copy(toy.center).sub(this.camera.position).length()<=pad+.02) return null;
     const along=this.temp.copy(toy.center).sub(this.raycaster.ray.origin).dot(this.raycaster.ray.direction);
-    if(along<=.02||this.raycaster.ray.distanceToPoint(toy.center)>pad)return Infinity;
-    return along;
+    if(along<=.02||this.raycaster.ray.distanceToPoint(toy.center)>pad)return null;
+    return {distance:along,padded:true};
+  }
+  /** About 5 cm past the jelly, and only when the ray missed the mesh. */
+  private jellyNear() {
+    const along=this.temp.copy(this.body.center).sub(this.raycaster.ray.origin).dot(this.raycaster.ray.direction);
+    if(along<=.02)return false;
+    return this.raycaster.ray.distanceToPoint(this.body.center)<=JELLY_NEAR;
   }
   private dragToy(e:PointerEvent,toy:ToyTap,phase:'start'|'move'|'end') {
     if(!toy.drag)return;

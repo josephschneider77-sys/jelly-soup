@@ -64,13 +64,14 @@ export function applyBathForces(body: SoftBody, level: number, h: number, faucet
   return { speed: Math.sqrt(speed / Math.max(1, n)), submerged };
 }
 
-/** Soft tub walls and floor so a toss stays in the bath. */
-export function containInTub(body: SoftBody) {
+/** Soft tub walls and floor so a toss stays in the bath. halfX can be the visible slice of the tub. */
+export function containInTub(body: SoftBody, halfX = TUB.halfX) {
   const x = body.x, v = body.velocity;
-  const { halfX, halfZ, floor } = TUB;
+  const { halfZ, floor } = TUB;
+  const limit = Math.min(TUB.halfX, Math.max(.05, halfX));
   for (let i = 0; i < body.mass.length; i++) {
     const j = i * 3;
-    pushInside(x, v, j, -halfX, halfX);
+    pushInside(x, v, j, -limit, limit);
     pushInside(x, v, j + 2, -halfZ, halfZ);
     if (x[j + 1] < floor) {
       x[j + 1] = floor;
@@ -98,9 +99,10 @@ export function pourOn(body: SoftBody, x: number, z: number) {
     const dx = p[j] - x, dz = p[j + 2] - z;
     const d2 = dx * dx + dz * dz;
     if (d2 < .014) {
-      v[j + 1] -= .62;
-      v[j] += dx * 3;
-      v[j + 2] += dz * 3;
+      // A small nudge. A hard downward kick sinks the jelly under the water line.
+      v[j + 1] = Math.max(-.08, v[j + 1] - .16);
+      v[j] += dx * 2;
+      v[j + 2] += dz * 2;
     }
   }
 }
