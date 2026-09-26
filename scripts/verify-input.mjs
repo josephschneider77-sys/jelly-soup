@@ -25,6 +25,7 @@ const firstLog=failBody.indexOf('console.error');
 assert(failBody.indexOf('seenErrors.has(key)')<firstLog,'a repeated error returns before it logs');
 assert.doesNotMatch(failBody,/reported/,'a later different error is not swallowed by one flag');
 assert.match(runtime,/yieldsToJelly/);
+assert.match(runtime,/label: 'sponge', yieldsToJelly: true/,'the sponge yields when a press also hits the jelly');
 assert.match(runtime,/label: 'duck'/);
 assert.match(readFileSync(new globalThis.URL('../src/app/input.ts',import.meta.url),'utf8'),/eventTime/);
 assert.match(runtime,/__jellyQC/);
@@ -265,4 +266,15 @@ function releaseGrab() {
   assert(duckMoves>0,'dragging a duck moves it');
 }
 
+{
+  input.clear();
+  const mesh=new Mesh(new BoxGeometry(.004,.004,.004));
+  mesh.position.set(-.04,.28,.16);
+  mesh.updateMatrixWorld(true);
+  let padded=0;
+  input.toyTaps.push({center:mesh.position.clone(),radius:.05,object:mesh,label:'cup',use:()=>{padded++;}});
+  const pixel=project(0,.28,.16);
+  tap(pixel.x,pixel.y);
+  assert.equal(padded,1,'a near miss within 5 cm still hits the toy');
+}
 console.log('Bath taps: faucet, duck, bubble, and jelly.');

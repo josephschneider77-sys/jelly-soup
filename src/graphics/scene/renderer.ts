@@ -1,6 +1,6 @@
 import * as THREE from 'three/webgpu';
 import type { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { bathFov } from '../../app/bath/layout.ts';
+import { bathFrame } from '../../app/bath/layout.ts';
 import { WEBGPU_REQUIRED } from '../../app/startup-error.ts';
 
 export async function createRenderer(fail:(e:unknown)=>void) {
@@ -51,7 +51,12 @@ export function resizeView(renderer:THREE.WebGPURenderer,camera:THREE.Perspectiv
   const width=Math.max(1,window.innerWidth),height=Math.max(1,window.innerHeight);
   renderer.setDrawingBufferSize(width,height,drawingBufferDpr(width,height,window.devicePixelRatio,maxDpr));
   camera.aspect=width/height;
-  camera.fov=bathFov(camera.aspect);
+  const frame=bathFrame(camera.aspect);
+  camera.fov=frame.fov;
+  camera.position.set(frame.x,frame.y,frame.z);
+  camera.lookAt(frame.lookX,frame.lookY,frame.lookZ);
   camera.clearViewOffset();
-  camera.updateProjectionMatrix();controls.update();
+  camera.updateProjectionMatrix();
+  controls.target.set(frame.lookX,frame.lookY,frame.lookZ);
+  controls.update();
 }

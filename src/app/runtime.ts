@@ -121,26 +121,31 @@ export async function startGame(stage: (s: string) => void, fail: (e: unknown) =
     });
   });
   bath.bubbles.forEach((bubble, i) => input.toyTaps.push({
-    center: bubbleCenters[i], radius: .05, object: bubble.mesh, label: 'bubble', yieldsToJelly: true,
+    center: bubbleCenters[i], radius: .06, object: bubble.mesh, label: 'bubble', yieldsToJelly: true,
     use: () => popBubble(bubble),
   }));
   input.toyTaps.push({
-    center: spongeCenter, radius: .05, object: bath.sponge.group, label: 'sponge',
+    center: spongeCenter, radius: .06, object: bath.sponge.group, label: 'sponge', yieldsToJelly: true,
     use: () => { note('sponge'); squeeze(); },
     drag: (phase, point) => {
       note('sponge');
-      if (phase === 'start') spongeOffset.copy(bath.sponge.group.position).sub(point);
+      if (phase === 'start') {
+        bath.holdSponge();
+        spongeOffset.copy(bath.sponge.group.position).sub(point);
+      }
       const x = THREE.MathUtils.clamp(point.x + spongeOffset.x, -TUB.halfX + .04, TUB.halfX - .04);
       const z = THREE.MathUtils.clamp(point.z + spongeOffset.z, -TUB.halfZ + .04, TUB.halfZ - .04);
       bath.sponge.group.position.set(x, level + .045, z);
       spongeCenter.copy(bath.sponge.group.position);
-      if (phase !== 'start') squeeze();
+      if (phase === 'end') bath.releaseSponge();
+      else if (phase !== 'start') squeeze();
     },
   });
   input.toyTaps.push({
-    center: cupCenter, radius: .05, object: bath.cup, label: 'cup', use: () => {
+    center: cupCenter, radius: .06, object: bath.cup, label: 'cup', use: () => {
       note('cup');
       pourOn(body, body.center.x, body.center.z);
+      bath.pour();
       splash(.7);
       giggle();
     },
@@ -156,8 +161,9 @@ export async function startGame(stage: (s: string) => void, fail: (e: unknown) =
   }
   function squeeze() {
     if (squeezeWait > 0) return;
-    if (bath.sponge.group.position.distanceTo(body.center) > .09) return;
-    squeezeWait = .32;
+    // Meters, not pixels, so a rub keeps counting on a tablet the same way it does on a phone.
+    if (bath.sponge.group.position.distanceTo(body.center) > .11) return;
+    squeezeWait = .4;
     noteSquish();
     rig.squish();
     giggle();
@@ -216,7 +222,10 @@ export async function startGame(stage: (s: string) => void, fail: (e: unknown) =
   });
   document.querySelector('#reset')!.addEventListener('click', reset);
   const flavors = new FlavorPicker(name => baby.setFlavor(name));
-  const resize = () => resizeView(renderer, camera, input.controls, 1.5);
+  const resize = () => {
+    resizeView(renderer, camera, input.controls, 1.5);
+    input.captureHome();
+  };
   resize();
   const resizeObserver = new ResizeObserver(resize);
   resizeObserver.observe(document.body);
@@ -260,6 +269,7 @@ export async function startGame(stage: (s: string) => void, fail: (e: unknown) =
     baby.update(dt);
     bath.update(dt, simTime);
     syncCenters();
+    if (input.hold() === 'sponge') squeeze();
     input.update(dt);
     sound.listen(camera);
     renderer.render(scene, camera);

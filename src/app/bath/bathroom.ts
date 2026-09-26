@@ -43,8 +43,17 @@ export class Bathroom {
   private readonly water: THREE.Mesh;
   private readonly ripple = uniform(0);
   private readonly stream: THREE.Mesh;
+  private readonly cupStream: THREE.Mesh;
+  private readonly mouth = new THREE.Vector3();
+  private readonly pourEnd = new THREE.Vector3();
+  private readonly pourDir = new THREE.Vector3();
+  private readonly up = new THREE.Vector3(0, 1, 0);
   private level = TUB.restLevel;
   private faucetOn = false;
+  private pourLeft = 0;
+  private spongeHeld = false;
+  private spongeReturning = false;
+  private readonly pourDuration = .9;
   constructor() {
     this.group.add(this.room(), this.tub());
     this.faucet = this.makeFaucet();
@@ -57,8 +66,9 @@ export class Bathroom {
     this.bubbles = Array.from({ length: 8 }, (_, i) => this.bubble(i));
     this.sponge = this.makeSponge();
     this.cup = this.makeCup();
+    this.cupStream = this.makeCupStream();
     this.wand = this.makeWand();
-    this.group.add(this.cup, this.wand);
+    this.group.add(this.cup, this.cupStream, this.wand);
     this.setLevel(TUB.restLevel);
   }
   setLevel(level: number) {
@@ -75,12 +85,25 @@ export class Bathroom {
       duck.x = duck.homeX; duck.z = duck.homeZ; duck.vx = 0; duck.vz = 0; duck.held = false;
       this.placeDuck(duck);
     }
+    this.spongeHeld = false;
+    this.spongeReturning = false;
     this.sponge.group.position.set(this.sponge.homeX, this.level + .045, this.sponge.homeZ);
+    this.pourLeft = 0;
+    this.cup.rotation.z = 0;
+    this.cupStream.visible = false;
     for (const bubble of this.bubbles) this.respawn(bubble, Math.random());
   }
+  /** A drag is in progress, so the sponge stays under the finger. */
+  holdSponge() { this.spongeHeld = true; this.spongeReturning = false; }
+  /** Let go. The sponge floats back beside the jelly instead of sitting on it. */
+  releaseSponge() { this.spongeHeld = false; this.spongeReturning = true; }
+  /** Tip the cup and run a stream. The caller also nudges the jelly. */
+  pour() { this.pourLeft = this.pourDuration; }
   update(dt: number, timeSeconds: number) {
     this.stream.scale.y = this.faucetOn ? .85 + Math.sin(timeSeconds * 28) * .08 : 1;
     this.stream.position.y = this.faucetOn ? .02 - this.stream.scale.y * .08 : .02;
+    this.aimPour(dt);
+    this.easeSponge(dt);
     for (const bubble of this.bubbles) {
       if (!bubble.alive) {
         bubble.wait -= dt;
@@ -88,9 +111,44 @@ export class Bathroom {
         continue;
       }
       bubble.y += bubble.speed * dt;
-      bubble.x += Math.sin(timeSeconds * 1.3 + bubble.phase) * .012 * dt;
+      bubble.x += Math.sin(timeSeconds * .7 + bubble.phase) * .006 * dt;
+      bubble.z += Math.cos(timeSeconds * .5 + bubble.phase) * .004 * dt;
+      bubble.x = THREE.MathUtils.clamp(bubble.x, -.12, .12);
+      bubble.z = THREE.MathUtils.clamp(bubble.z, -.12, .05);
+      if (Math.abs(bubble.x) < .06 && bubble.z > -.03) bubble.z = -.08;
       bubble.mesh.position.set(bubble.x, bubble.y, bubble.z);
-      if (bubble.y > this.level + .16) this.pop(bubble, 1.2 + Math.random());
+      // Stay on the water, inside the tub, where a tap can reach.
+      if (bubble.y > this.level + .065) this.pop(bubble, 1.4 + Math.random());
+    }
+  }
+  private aimPour(dt: number) {
+    if (this.pourLeft > 0) this.pourLeft = Math.max(0, this.pourLeft - dt);
+    const tilt = this.pourLeft > 0 ? Math.sin((1 - this.pourLeft / this.pourDuration) * Math.PI) * 1.15 : 0;
+    this.cup.rotation.z = -tilt;
+    this.cup.updateWorldMatrix(true, false);
+    this.mouth.set(.012, .02, 0).applyMatrix4(this.cup.matrixWorld);
+    this.pourEnd.set(this.mouth.x + .06, this.level + .01, this.mouth.z);
+    this.pourDir.copy(this.pourEnd).sub(this.mouth);
+    const length = this.pourDir.length();
+    this.cupStream.visible = tilt > .18 && length > .02;
+    if (!this.cupStream.visible) return;
+    this.pourDir.multiplyScalar(1 / length);
+    this.cupStream.position.copy(this.mouth).addScaledVector(this.pourDir, length * .5);
+    this.cupStream.quaternion.setFromUnitVectors(this.up, this.pourDir);
+    this.cupStream.scale.y = length / .14;
+  }
+  private easeSponge(dt: number) {
+    if (!this.spongeReturning || this.spongeHeld) return;
+    const homeY = this.level + .045;
+    const home = this.sponge.group.position;
+    const k = 1 - Math.exp(-6 * dt);
+    home.x += (this.sponge.homeX - home.x) * k;
+    home.y += (homeY - home.y) * k;
+    home.z += (this.sponge.homeZ - home.z) * k;
+    const dx = this.sponge.homeX - home.x, dy = homeY - home.y, dz = this.sponge.homeZ - home.z;
+    if (dx * dx + dy * dy + dz * dz < .0004) {
+      home.set(this.sponge.homeX, homeY, this.sponge.homeZ);
+      this.spongeReturning = false;
     }
   }
   pop(bubble: BathBubble, wait = .8) {
@@ -103,8 +161,8 @@ export class Bathroom {
     bubble.wait = 0;
     // Slots sit beside and behind the jelly, never on the camera's line to its face.
     const slots: ReadonlyArray<readonly [number, number]> = [
-      [-.22, -.02], [.22, .02], [-.16, -.14], [.16, -.14],
-      [-.24, .1], [.24, .1], [-.08, -.16], [.1, -.16],
+      [-.1, .02], [.1, -.01], [-.08, -.1], [.08, -.09],
+      [-.05, .04], [.06, .035], [0, -.11], [.04, -.07],
     ];
     const slot = slots[Math.floor(seed * slots.length) % slots.length];
     let x = slot[0] + (seed - .5) * .03;
@@ -143,12 +201,15 @@ export class Bathroom {
   }
   private tub() {
     const tub = new THREE.Group();
-    const ceramic = glossy('#fff1e4', .28);
+    const ceramic = glossy('#ffb7c8', .48);
+    const interior = glossy('#7ec8ea', .4);
     const shell = (w: number, h: number, d: number, x: number, y: number, z: number) => {
       const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), ceramic);
       mesh.position.set(x, y, z); tub.add(mesh);
     };
-    shell(.7, .05, .46, 0, .02, 0);
+    const floor = new THREE.Mesh(new THREE.BoxGeometry(.7, .05, .46), interior);
+    floor.position.set(0, .02, 0);
+    tub.add(floor);
     shell(.04, .14, .46, -.34, .08, 0);
     shell(.04, .14, .46, .34, .08, 0);
     shell(.7, .16, .04, 0, .09, -.22);
@@ -168,8 +229,8 @@ export class Bathroom {
   }
   private makeWater() {
     const material = new THREE.MeshPhysicalNodeMaterial({
-      color: '#1aa0e0', roughness: .08, metalness: 0, transmission: 0,
-      transparent: true, opacity: .5, clearcoat: 1, clearcoatRoughness: .04,
+      color: '#0e86c4', emissive: '#7fd4ff', emissiveIntensity: .35, roughness: .06, metalness: 0, transmission: 0,
+      transparent: true, opacity: .82, clearcoat: 1, clearcoatRoughness: .08,
       depthWrite: false, side: THREE.DoubleSide,
     });
     const wave = sin(positionLocal.x.mul(26).add(time.mul(1.6))).mul(.0032)
@@ -229,7 +290,7 @@ export class Bathroom {
     duck.group.rotation.z = Math.sin(duck.phase) * .08;
   }
   private bubble(index: number) {
-    const radius = .02 + (index % 3) * .005;
+    const radius = .034 + (index % 3) * .008;
     const mesh = new THREE.Mesh(
       new THREE.SphereGeometry(radius, 14, 10),
       new THREE.MeshStandardMaterial({
@@ -238,7 +299,7 @@ export class Bathroom {
       }),
     );
     const bubble: BathBubble = {
-      mesh, alive: true, x: 0, y: 0, z: 0, radius, speed: .035 + (index % 4) * .008, wait: 0, phase: index * .7,
+      mesh, alive: true, x: 0, y: 0, z: 0, radius, speed: .008 + (index % 4) * .003, wait: 0, phase: index * .7,
     };
     this.respawn(bubble, index / 8);
     this.group.add(mesh);
@@ -265,6 +326,18 @@ export class Bathroom {
     cup.position.set(CUP_HOME.x, TUB.restLevel + .05, CUP_HOME.z);
     return cup;
   }
+  private makeCupStream() {
+    const mesh = new THREE.Mesh(
+      new THREE.CylinderGeometry(.01, .016, .14, 10),
+      new THREE.MeshStandardMaterial({
+        color: '#3ec4ff', emissive: '#8ad8ff', emissiveIntensity: .4,
+        transparent: true, opacity: .88, roughness: .08, depthWrite: false,
+      }),
+    );
+    mesh.visible = false;
+    mesh.renderOrder = 3;
+    return mesh;
+  }
   private makeWand() {
     const wand = new THREE.Group();
     const stick = new THREE.Mesh(new THREE.CylinderGeometry(.006, .006, .12, 8), glossy('#ffffff', .3));
@@ -272,7 +345,7 @@ export class Bathroom {
     const ring = new THREE.Mesh(new THREE.TorusGeometry(.018, .004, 8, 16), glossy('#3d8cff', .25));
     ring.position.set(.04, .05, 0);
     wand.add(stick, ring);
-    wand.position.set(.12, .2, -.15);
+    wand.position.set(.05, .19, -.11);
     return wand;
   }
 }

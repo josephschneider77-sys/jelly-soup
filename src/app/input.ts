@@ -42,7 +42,7 @@ type PointerPick={kind:'jelly'|'toy'|'floor';toy:ToyTap|null;hit:{t:number;dista
 /** A tap is a short press. clientX/clientY are CSS pixels, so this slop is already in CSS px. */
 const TAP_PX=24;
 const TAP_MS=600;
-/** Fallback when a toy has no mesh. Large spheres covered the whole view. */
+/** Near misses within this distance still count. A larger sphere used to cover the whole view. */
 const TOY_PROXY_RADIUS=.05;
 
 export class Input {
@@ -62,7 +62,8 @@ export class Input {
   private grabBVH:SurfaceBVH;
   private pointer=new THREE.Vector2();
   private temp=new THREE.Vector3();
-  private follow=new THREE.Vector3();
+  /** Fixed orbit center. Bath Time pins this to the tub; tests keep the spawn center. */
+  private anchor=new THREE.Vector3();
   private idle=0;
   private orbiting=false;
   private readonly homeSpherical=new THREE.Spherical();
@@ -83,12 +84,12 @@ export class Input {
     this.canvas=canvas;this.grabBVH=new SurfaceBVH(body.surface);
     this.controls=new OrbitControls(camera,canvas);
     const c=this.controls;
-    c.target.copy(body.center);this.follow.copy(c.target);
+    c.target.copy(body.center);this.anchor.copy(c.target);
     c.enablePan=false;c.enableDamping=true;c.dampingFactor=.07;
     c.minDistance=BATH_ORBIT.minDistance;c.maxDistance=BATH_ORBIT.maxDistance;
     c.minPolarAngle=BATH_ORBIT.minPolar;c.maxPolarAngle=BATH_ORBIT.maxPolar;
     c.rotateSpeed=.55;c.zoomSpeed=.5;c.update();
-    this.homeSpherical.setFromVector3(this.scratchOffset.copy(camera.position).sub(c.target));
+    this.captureHome();
     c.addEventListener('start',()=>{this.orbiting=true;this.idle=0;});
     c.addEventListener('end',()=>{this.orbiting=false;this.idle=0;});
     const signal=this.abort.signal;
@@ -261,16 +262,15 @@ export class Input {
     return true;
   }
   private toyDistance(toy:ToyTap) {
+    const pad=Math.min(.08,Math.max(toy.radius,TOY_PROXY_RADIUS));
     if(toy.object) {
       if(!this.toyVisible(toy))return Infinity;
       toy.object.updateWorldMatrix(true,true);
       const hit=this.raycaster.intersectObject(toy.object,true).find(item=>this.hitVisible(item.object));
-      return hit?.distance??Infinity;
-    }
-    const radius=Math.min(toy.radius,TOY_PROXY_RADIUS);
-    if(this.scratchOffset.copy(toy.center).sub(this.camera.position).length()<=radius+.02)return Infinity;
+      if(hit)return hit.distance;
+    } else if(this.scratchOffset.copy(toy.center).sub(this.camera.position).length()<=pad+.02) return Infinity;
     const along=this.temp.copy(toy.center).sub(this.raycaster.ray.origin).dot(this.raycaster.ray.direction);
-    if(along<=.02||this.raycaster.ray.distanceToPoint(toy.center)>radius)return Infinity;
+    if(along<=.02||this.raycaster.ray.distanceToPoint(toy.center)>pad)return Infinity;
     return along;
   }
   private dragToy(e:PointerEvent,toy:ToyTap,phase:'start'|'move'|'end') {
@@ -353,13 +353,16 @@ export class Input {
     if(busy)this.idle=0;else this.idle+=dt;
     for(const [id,state] of this.grabs)if(!this.body.grabs.includes(state.grab))this.finishRelease(id);
     if(this.body.grab||this.toyDrag)return;
-    const offscreen=this.projectedOffscreen();
-    const target=this.temp.copy(this.body.center);target.y=Math.max(.06,target.y);
-    this.follow.lerp(target,1-Math.exp(-(offscreen?12:4.5)*dt));
-    this.temp.copy(this.follow).sub(this.controls.target);
-    this.camera.position.add(this.temp);this.controls.target.copy(this.follow);
+    // The tub is the orbit center. Following the jelly pans every toy off the screen.
+    this.controls.target.copy(this.anchor);
     this.controls.update();
+    const offscreen=this.projectedOffscreen();
     if(!busy&&(offscreen||this.idle>3.5))this.easeHome(dt,offscreen?4.5:1.6);
+  }
+  /** Remember the current view as home. Resize calls this after fitting the tub. */
+  captureHome() {
+    this.anchor.copy(this.controls.target);
+    this.homeSpherical.setFromVector3(this.scratchOffset.copy(this.camera.position).sub(this.controls.target));
   }
   private projectedOffscreen() {
     this.ndc.copy(this.body.center);this.ndc.project(this.camera);
@@ -387,8 +390,7 @@ export class Input {
   }
   recenter() {this.clear();this.rig.reset();}
   teleport() {
-    this.recenter();this.temp.copy(this.body.center).sub(this.controls.target);
-    this.camera.position.add(this.temp);this.controls.target.copy(this.body.center);this.follow.copy(this.body.center);this.controls.update();
+    this.recenter();this.controls.target.copy(this.anchor);this.controls.update();
   }
   dispose() {this.clear();this.abort.abort();this.controls.dispose();}
 }
