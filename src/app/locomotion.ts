@@ -33,6 +33,27 @@ export class Locomotion {
     for(let i=0;i<body.mass.length;i++) this.restCenter.addScaledVector(new Vector3().fromArray(body.rest,i*3),body.mass[i]/body.totalMass);
   }
   jump() { this.jumpQueued=true; }
+  /** A tap on the jelly: crown dips, sides bulge, and the soft body springs back. */
+  squish() {
+    const b=this.body;b.wake();
+    for(let i=0;i<b.mass.length;i++) {
+      const j=i*3;
+      const rx=b.rest[j]-this.restCenter.x,rz=b.rest[j+2]-this.restCenter.z;
+      const crown=Math.max(0,(b.rest[j+1]-this.restCenter.y)/.035);
+      b.velocity[j]+=rx*8;b.velocity[j+2]+=rz*8;b.velocity[j+1]+=.16-crown*.7;
+    }
+  }
+  private splat(speed:number) {
+    const amount=Math.min(.55,Math.max(0,speed-.12));
+    if(amount<=0)return;
+    const b=this.body;
+    for(let i=0;i<b.mass.length;i++) {
+      const j=i*3;
+      const rx=b.rest[j]-this.restCenter.x,rz=b.rest[j+2]-this.restCenter.z;
+      const crown=Math.max(0,(b.rest[j+1]-this.restCenter.y)/.03);
+      b.velocity[j]+=rx*amount*6;b.velocity[j+2]+=rz*amount*6;b.velocity[j+1]-=crown*amount*.7;
+    }
+  }
   reset() { this.yaw=0; this.phase=0;this.speedScale=1;this.cadenceScale=1;this.gaitWeight=0;this.jumpCooldown=0; this.jumpQueued=false; this.move.set(0,0,0); }
   step(h:number) {
     const b=this.body, x=b.x, v=b.velocity;
@@ -65,17 +86,22 @@ export class Locomotion {
     const ax=(this.move.x*targetSpeed-this.velocity.x)*48*drive*recovery;
     const az=(this.move.z*targetSpeed-this.velocity.z)*48*drive*recovery;
     const muscle=(this.grounded?1:.22)*recovery;
+    const slosh=Math.sin(this.phase*.55)*this.gaitWeight;
+    const sloshSide=Math.cos(this.phase*.42)*this.gaitWeight;
     for(let i=0;i<b.mass.length;i++) {
       const j=i*3;
       const rx=b.rest[j]-this.restCenter.x;
       let ry=b.rest[j+1]-this.restCenter.y,rz=b.rest[j+2]-this.restCenter.z;
       const foot=Math.max(0,1-b.rest[j+1]/.023);
       const arm=Math.max(0,Math.min(1,(Math.abs(rx)-.030)/.016));
+      const crown=Math.max(0,Math.min(1,(b.rest[j+1]-.012)/.04));
       const stride=Math.sin(this.phase+(rx<0?0:Math.PI))*this.gaitWeight;
       rz+=stride*(foot*.009-arm*.004);
       ry+=Math.max(0,stride)*foot*.006;
-      const tx=rx*co+rz*si, tz=rz*co-rx*si;
-      // A force-controlled posture leaves shear, volume, contact and recoil to XPBD.
+      // A small crown lag reads as liquid slosh. It stays under a millimetre so
+      // the visible skin still clears thin toy frames while the soft body wobbles.
+      ry+=crown*slosh*.0016;
+      const tx=rx*co+rz*si+crown*sloshSide*.0007, tz=rz*co-rx*si+crown*slosh*.00085;
       const k=foot>0?1800:1000;
       v[j]+=(muscle*(k*(this.center.x+tx-x[j])-24*(v[j]-this.velocity.x))+ax)*h;
       v[j+1]+=muscle*(k*(this.center.y+ry-x[j+1])-24*(v[j+1]-this.velocity.y))*h;
@@ -95,7 +121,7 @@ export class Locomotion {
   afterStep() {
     let contact=0;
     for(let i=0;i<this.body.contact.length;i++) contact+=this.body.contact[i]*this.body.mass[i];
-    if(contact>0 && this.velocity.y<-.13)this.surfaceImpact(-this.velocity.y);
+    if(contact>0 && this.velocity.y<-.13 && this.surfaceImpact(-this.velocity.y))this.splat(-this.velocity.y);
     const beat=Math.floor(this.phase/Math.PI);
     if(contact>0 && this.move.lengthSq()>.01 && beat!==this.lastStep) {
       this.lastStep=beat;

@@ -1,12 +1,14 @@
-# Jelly Baby
+# Jelly Soup
 
-![Jelly Baby](public/og_image.png)
+![Jelly Soup](public/og_image.png)
 
-***Play live at: https://jelly.scottsun.io***
+***Play live at: https://josephschneider77-sys.github.io/jelly-soup/***
+
+Based on Jelly Baby by Scott Sun (https://github.com/scottstts/Jelly-Baby), GPL-3.0.
 
 ## A very small world with excellent bounce
 
-Jelly Baby is a 7 cm resident of a warm wooden tabletop. It has no errands, no
+Jelly Soup is a 7 cm resident of a warm wooden tabletop, tuned for toddlers. It has no errands, no
 scoreboard, and no interest in standing still for long.
 
 Wander over to the swing. Try the trampoline. Pull the little jelly by the
@@ -19,13 +21,16 @@ blueberry, and lemon are waiting in the palette.
 
 ## Make it move
 
-On desktop, use `WASD` or the arrow keys to wander and `Space` to hop. Drag the
-tabletop to look around; scroll or pinch to move closer. Drag the baby itself to
-stretch and throw it. `R` brings everything back to its starting place.
+Tap anywhere to hop. Tap the jelly for a squish and a smile. Tap the swing, the
+trampoline, or the bed and the jelly hops on and plays — no careful dragging.
 
-On touch, the joystick handles wandering and the round button handles hopping.
-The play button appears when a facility is close enough. The same button gets
-you off again.
+On desktop, `WASD` or the arrow keys still wander and `Space` still hops. Drag
+the tabletop to look around; the view eases back to the jelly after a few quiet
+seconds. Drag the jelly itself to stretch it.
+
+On touch, the joystick wanders and the round button hops. Big color blobs change
+the flavor. Soccer and the tricycle stay in the project, but the playroom portal
+that led to them is hidden so the table stays simple.
 
 Sound begins with your first interaction and can be muted from the top corner.
 

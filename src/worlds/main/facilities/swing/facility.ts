@@ -43,6 +43,16 @@ export class SwingFacility implements Facility {
     }
     return changed;
   }
+  /** Tap the swing: hop on from anywhere, or give it a push if already riding. */
+  summon() {
+    if(this.physics.riding)return this.physics.boost();
+    const changed=this.physics.mount();
+    if(changed) {
+      this.laughStarted=false;
+      this.laughBeyondThreshold=Math.abs(this.physics.angle)>=LAUGH_ANGLE;
+    }
+    return changed;
+  }
   step(h:number) {
     this.physics.step(h);
     this.audio.swing(h,this.physics.angle,this.physics.speed,this.active);

@@ -3,7 +3,7 @@ import { DEFAULT_JELLY_FLAVOR, JELLY_FLAVORS, type JellyFlavorName } from '../gr
 export function flavorPickerMarkup() {
   const options=Object.entries(JELLY_FLAVORS).map(([name,flavor])=>`
     <button class="flavor-option" type="button" data-flavor="${name}" aria-pressed="${name===DEFAULT_JELLY_FLAVOR}" style="--flavor-color:${flavor.surface}">
-      <span class="flavor-option-swatch" aria-hidden="true"></span><span>${name}</span>
+      <span class="flavor-option-swatch" aria-hidden="true"></span><span class="sr-only">${name}</span>
     </button>`).join('');
   return `<div id="flavor-picker" class="flavor-picker">
     <button id="flavor" class="icon-button flavor-picker-button" type="button" aria-label="Choose jelly flavor (currently ${DEFAULT_JELLY_FLAVOR})" aria-haspopup="true" aria-expanded="false" aria-controls="flavor-menu" title="Jelly flavor: ${DEFAULT_JELLY_FLAVOR}">

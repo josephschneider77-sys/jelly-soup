@@ -18,6 +18,9 @@ import { JELLY_FLAVORS } from '../graphics/character/jelly-flavors.ts';
 import { FlavorPicker } from './flavor-picker.ts';
 import { Facilities } from '../facilities/manager.ts';
 import { SwingFacility } from '../worlds/main/facilities/swing/facility.ts';
+import { SWING } from '../worlds/main/facilities/swing/physics.ts';
+import { TRAMPOLINE } from '../worlds/main/facilities/trampoline/physics.ts';
+import { BED } from '../worlds/main/facilities/bed/physics.ts';
 import { FacilityShadows } from '../facilities/shadows.ts';
 import { LightingMode } from './lighting-mode.ts';
 import { BedFacility } from '../worlds/main/facilities/bed/facility.ts';
@@ -38,7 +41,7 @@ export async function startGame(stage:(s:string)=>void,fail:(e:unknown)=>void) {
   // gesture can unlock Web Audio even while assets and shaders are settling.
   const sound=new JellySound();
   const scene=new THREE.Scene();
-  scene.background=new THREE.Color('#e8d9c3');scene.fog=new THREE.Fog('#e8d9c3',2,12);
+  scene.background=new THREE.Color('#fff4c8');scene.fog=new THREE.Fog('#fff4c8',2,12);
   const camera=new THREE.PerspectiveCamera(36,1,.001,40);
   camera.position.set(.111,.170,.256);
   stage('Loading the little room');
@@ -65,7 +68,7 @@ export async function startGame(stage:(s:string)=>void,fail:(e:unknown)=>void) {
   const composite=createComposite(renderer,scene,camera,profile.bloomResolutionScale);
   const rig=new Locomotion(body);
   const facilities=new Facilities(body);
-  const worlds=new WorldTravel(scene,body,facilityShadows,facilities,renderer,camera,stage,fail,profile.cameraOnlyOpticalHz);
+  const worlds=new WorldTravel(scene,body,facilityShadows,facilities,renderer,camera,stage,fail,profile.cameraOnlyOpticalHz,true);
   const wearableTable=new WearableFacility(worlds.home,body,baby.group,rig,facilityShadows);
   const bed=new BedFacility(worlds.home,body,facilityShadows);
   rig.onJump=()=>{
@@ -75,8 +78,10 @@ export async function startGame(stage:(s:string)=>void,fail:(e:unknown)=>void) {
   facilities.add(wearableTable);
   worlds.toyFacilities.add(new CarriedWearableFacility(wearableTable));
   worlds.soccerFacilities.add(new CarriedWearableFacility(wearableTable));
-  facilities.add(new SwingFacility(worlds.home,body,facilityShadows,sound.facility));
-  facilities.add(new TrampolineFacility(worlds.home,body,facilityShadows,sound.facility));
+  const swing=new SwingFacility(worlds.home,body,facilityShadows,sound.facility);
+  const trampoline=new TrampolineFacility(worlds.home,body,facilityShadows,sound.facility);
+  facilities.add(swing);
+  facilities.add(trampoline);
   facilities.add(bed);
   const flavorPicker=new FlavorPicker(flavor=>{
     baby.setFlavor(flavor);optics.setAbsorption(JELLY_FLAVORS[flavor].absorption);
@@ -90,6 +95,19 @@ export async function startGame(stage:(s:string)=>void,fail:(e:unknown)=>void) {
   let lastTime=0,disposed=false;
   const reset=()=>{if(worlds.loading)return;sound.stopFacilities();worlds.reset();input.teleport();rig.yaw=worlds.arrivalYaw;baby.resetFace();physicsClock.reset();};
   const input=new Input(camera,renderer.domElement,body,baby.mesh,rig,sound);
+  const happy=()=>{baby.cheer();sound.chirp();};
+  input.onTapGround=()=>{if(worlds.loading||worlds.menu.opened||worlds.facilities.active)return;rig.jump();happy();};
+  input.onTapJelly=()=>{rig.squish();happy();};
+  const idleToy=(facility:{readonly id:string;readonly active:boolean;summon:()=>boolean})=>{
+    const owner=worlds.facilities.active;
+    if(owner&&owner.id!==facility.id)return;
+    if(facility.summon()){rig.reset();happy();}
+  };
+  input.toyTaps.push(
+    {center:new THREE.Vector3(SWING.x,.09,SWING.z),radius:.12,use:()=>idleToy(swing)},
+    {center:new THREE.Vector3(TRAMPOLINE.x,.05,TRAMPOLINE.z),radius:.13,use:()=>idleToy(trampoline)},
+    {center:new THREE.Vector3(BED.x,.05,BED.z),radius:.14,use:()=>idleToy(bed)},
+  );
   input.bodyControlled=()=>worlds.loading||worlds.menu.opened||!!worlds.facilities.active;
   input.menuOpen=()=>worlds.menu.opened;
   input.soccerOnField=()=>worlds.inSoccer&&(worlds.soccer?.physics.onField??false);

@@ -22,7 +22,15 @@ type PointerGrab={
   physicsSteps:number;
   commandVersion:number;
   consumedVersion:number;
+  originX:number;
+  originY:number;
+  originTime:number;
+  jellyTap:boolean;
 };
+
+export type ToyTap={center:THREE.Vector3;radius:number;use:()=>void};
+
+type SavedView={pos:THREE.Vector3;target:THREE.Vector3};
 
 export class Input {
   /** Facilities temporarily own the body while orbit controls remain available. */
@@ -34,6 +42,10 @@ export class Input {
   soccerOnField:()=>boolean=()=>false;
   soccerCameraObstacles:()=>readonly CollisionBox[]=()=>EMPTY_COLLISION_BOXES;
   menuOpen:()=>boolean=()=>false;
+  /** Short tap on empty table: hop. Short tap on the jelly: squish. */
+  onTapGround:()=>void=()=>{this.rig.jump();};
+  onTapJelly:()=>void=()=>{};
+  readonly toyTaps:ToyTap[]=[];
   private readonly chase:TricycleCamera;
   private readonly soccerCamera:SoccerCameraPitch;
   private hintMode='';
@@ -53,6 +65,13 @@ export class Input {
   private pointer=new THREE.Vector2();
   private temp=new THREE.Vector3();
   private follow=new THREE.Vector3();
+  private idle=0;
+  private orbiting=false;
+  private readonly homeSpherical=new THREE.Spherical();
+  private readonly scratchSpherical=new THREE.Spherical();
+  private readonly scratchOffset=new THREE.Vector3();
+  private readonly ndc=new THREE.Vector3();
+  private groundTap:{id:number;x:number;y:number;t:number;view:SavedView}|null=null;
   private abort=new AbortController();
   private canvas:HTMLCanvasElement;
   readonly camera:THREE.PerspectiveCamera;
@@ -70,8 +89,11 @@ export class Input {
     const c=this.controls;
     c.target.copy(body.center);this.follow.copy(c.target);
     c.enablePan=false;c.enableDamping=true;c.dampingFactor=.07;
-    c.minDistance=.135;c.maxDistance=.42;c.minPolarAngle=.22;c.maxPolarAngle=1.10;
-    c.rotateSpeed=.65;c.zoomSpeed=.65;c.update();
+    c.minDistance=.17;c.maxDistance=.36;c.minPolarAngle=.30;c.maxPolarAngle=1.02;
+    c.rotateSpeed=.55;c.zoomSpeed=.5;c.update();
+    this.homeSpherical.setFromVector3(this.scratchOffset.copy(camera.position).sub(c.target));
+    c.addEventListener('start',()=>{this.orbiting=true;this.idle=0;});
+    c.addEventListener('end',()=>{this.orbiting=false;this.idle=0;});
     const signal=this.abort.signal;
     canvas.addEventListener('pointerdown',this.begin,{capture:true,signal});
     canvas.addEventListener('pointermove',this.pointerMove,{capture:true,passive:false,signal});
@@ -103,7 +125,7 @@ export class Input {
         e.preventDefault();void sound.unlock().catch(()=>{});button.setPointerCapture(e.pointerId);
         const code=button.dataset.control!;
         this.touchKeys.set(e.pointerId,code);button.classList.add('held');
-        if(code==='Space'&&!this.bodyControlled())rig.jump();
+        if(code==='Space'&&!this.bodyControlled())this.onTapGround();
       },{signal});
       const release=(e:PointerEvent)=>{
         this.touchKeys.delete(e.pointerId);button.classList.remove('held');
@@ -158,8 +180,11 @@ export class Input {
     return false;
   }
   private begin=(e:PointerEvent)=>{
+    if(this.menuOpen())return;
+    if(e.button!==0||this.grabs.has(e.pointerId))return;
+    if(!this.grabs.size&&this.pickToy(e))return;
     if(this.bodyControlled())return;
-    if(e.button!==0||this.grabs.has(e.pointerId)||this.body.grabs.length>=MAX_GRABS)return;
+    if(this.body.grabs.length>=MAX_GRABS)return;
     // Only touch can add simultaneous grips; desktop mouse/pen keep one grip.
     if(this.body.grab&&(e.pointerType!=='touch'||[...this.grabs.values()].some(state=>state.pointerType!=='touch')))return;
     this.eventRay(e);
@@ -168,7 +193,11 @@ export class Input {
     // triangle scan. This changes no grip position or binding semantics.
     this.grabBVH.refit();
     const ray=this.raycaster.ray,o=[ray.origin.x,ray.origin.y,ray.origin.z],d=[ray.direction.x,ray.direction.y,ray.direction.z];
-    const hit=this.grabBVH.hit(o,d);if(!hit)return;
+    const hit=this.grabBVH.hit(o,d);
+    if(!hit) {
+      this.groundTap={id:e.pointerId,x:e.clientX,y:e.clientY,t:performance.now(),view:{pos:this.camera.position.clone(),target:this.controls.target.clone()}};
+      return;
+    }
     const ix=this.body.surface.indices,offset=hit.t*3;
     const face={a:ix[offset],b:ix[offset+1],c:ix[offset+2]};
     const point=ray.at(hit.distance,new THREE.Vector3());
@@ -181,6 +210,7 @@ export class Input {
       grab,pointerType:e.pointerType,
       plane:new THREE.Plane().setFromNormalAndCoplanarPoint(this.temp,point),rawTarget:point.clone(),
       releasePending:false,releaseStepsRemaining:0,physicsSteps:0,commandVersion:0,consumedVersion:0,
+      originX:e.clientX,originY:e.clientY,originTime:performance.now(),jellyTap:false,
     });
     this.controls.enabled=false;
     this.canvas.setPointerCapture(e.pointerId);this.canvas.classList.add('grabbing');
@@ -202,9 +232,12 @@ export class Input {
   };
   private end=(e:PointerEvent)=>{
     const state=this.grabs.get(e.pointerId);
-    if(!state||state.releasePending)return;
+    if(!state){this.finishGroundTap(e);return;}
+    if(state.releasePending)return;
     // pointerup itself may be the only event carrying an abrupt drag endpoint.
     if(e.type==='pointerup')this.captureDragTarget(e,state);
+    const moved=Math.hypot(e.clientX-state.originX,e.clientY-state.originY);
+    state.jellyTap=moved<40&&performance.now()-state.originTime<550;
     e.preventDefault();e.stopImmediatePropagation();
     // Mark released before releasing capture, which may itself dispatch an event.
     state.releasePending=true;
@@ -213,6 +246,43 @@ export class Input {
     this.syncGrabControls();
     // Retain each released grip until physics consumes its final target sample.
   };
+  private pickToy(e:PointerEvent) {
+    if(!this.toyTaps.length)return false;
+    this.eventRay(e);
+    const ray=this.raycaster.ray;
+    let best:{use:()=>void;along:number}|null=null;
+    for(const toy of this.toyTaps) {
+      const along=this.temp.copy(toy.center).sub(ray.origin).dot(ray.direction);
+      if(along<=0||ray.distanceToPoint(toy.center)>toy.radius)continue;
+      if(!best||along<best.along)best={use:toy.use,along};
+    }
+    if(!best)return false;
+    this.grabBVH.refit();
+    const o=[ray.origin.x,ray.origin.y,ray.origin.z],d=[ray.direction.x,ray.direction.y,ray.direction.z];
+    const hit=this.grabBVH.hit(o,d);
+    if(hit&&hit.distance<best.along-.01)return false;
+    e.preventDefault();e.stopImmediatePropagation();
+    void this.sound.unlock().catch(()=>{});
+    this.idle=0;best.use();
+    return true;
+  }
+  private finishGroundTap(e:PointerEvent) {
+    const tap=this.groundTap;
+    if(!tap||tap.id!==e.pointerId)return;
+    this.groundTap=null;
+    const moved=Math.hypot(e.clientX-tap.x,e.clientY-tap.y);
+    if(moved>=40||performance.now()-tap.t>=550||this.bodyControlled())return;
+    const view=tap.view;
+    queueMicrotask(()=>this.restoreTapView(view));
+    this.onTapGround();this.idle=0;
+  }
+  private restoreTapView(view:SavedView) {
+    this.camera.position.copy(view.pos);
+    this.controls.target.copy(view.target);this.follow.copy(view.target);
+    const delta=(this.controls as unknown as {_sphericalDelta?:{set:(x:number,y:number,z:number)=>void}})._sphericalDelta;
+    delta?.set(0,0,0);
+    this.controls.update();
+  }
   private syncGrabControls() {
     this.controls.enabled=this.body.grabs.length===0;
     this.canvas.classList.toggle('grabbing',[...this.grabs.values()].some(state=>!state.releasePending));
@@ -224,6 +294,7 @@ export class Input {
       this.grabs.delete(pointerId);
       const index=this.body.grabs.indexOf(state.grab);
       if(index!==-1)this.body.grabs.splice(index,1);
+      if(state.jellyTap&&state.releasePending)this.onTapJelly();
       if(this.canvas.hasPointerCapture(pointerId))this.canvas.releasePointerCapture(pointerId);
     }
     if(id===undefined)this.body.grab=null;
@@ -236,7 +307,7 @@ export class Input {
     if(['KeyW','KeyA','KeyS','KeyD','ArrowUp','ArrowLeft','ArrowDown','ArrowRight','Space'].includes(e.code)) {
       e.preventDefault();this.keys.add(e.code);void this.sound.unlock().catch(()=>{});
     }
-    if(e.code==='Space'&&!e.repeat&&!this.bodyControlled())this.rig.jump();
+    if(e.code==='Space'&&!e.repeat&&!this.bodyControlled())this.onTapGround();
     if(e.code==='Escape')this.finishRelease();
   };
   clear=()=>{
@@ -248,7 +319,7 @@ export class Input {
       this.joystickKnob?.style.setProperty('--joystick-y','0px');joystick?.classList.remove('held');
       if(joystick?.hasPointerCapture(id))joystick.releasePointerCapture(id);
     }
-    this.finishRelease();this.rig.move.set(0,0,0);
+    this.finishRelease();this.groundTap=null;this.rig.move.set(0,0,0);
     document.querySelectorAll('.held').forEach(el=>el.classList.remove('held'));
   };
   private pressed(...codes:string[]) {
@@ -288,9 +359,11 @@ export class Input {
   }
   update(dt:number) {
     const soccer=this.soccerOnField();
-    this.controls.maxDistance=.42;
+    const grazing=Math.PI/2-THREE.MathUtils.degToRad(this.camera.fov)/2-.10;
+    this.controls.maxDistance=soccer?.42:.36;
+    this.controls.minPolarAngle=soccer?.22:.30;
     this.soccerCamera.setFieldState(this.camera,soccer);
-    this.controls.maxPolarAngle=this.soccerCamera.needsWidePolarLimit?1.46:Math.PI/2-THREE.MathUtils.degToRad(this.camera.fov)/2-.10;
+    this.controls.maxPolarAngle=soccer?(this.soccerCamera.needsWidePolarLimit?1.46:grazing):Math.min(grazing,1.02);
     const riding=this.ridingVehicle(),mode=soccer?'soccer':riding?'vehicle':'walk';
     if(mode!==this.hintMode) {
       this.hintMode=mode;
@@ -299,17 +372,39 @@ export class Input {
       this.joystickElement?.setAttribute('aria-label',riding?'Steer and pedal':'Move');
       const jump=this.jumpElement;if(jump){jump.disabled=riding;jump.style.opacity=riding?'.3':'';jump.setAttribute('aria-label','Jump');const caption=jump.querySelector('span');if(caption)caption.textContent='hop';}
     }
-    this.controls.minDistance=this.facilityCameraDistance()??.135;
+    this.controls.minDistance=this.facilityCameraDistance()??(soccer?.135:.17);
+    const busy=this.orbiting||this.keys.size>0||this.joystickPointer!==null||this.touchKeys.size>0||this.grabs.size>0;
+    if(busy)this.idle=0;else this.idle+=dt;
     // External resets must never leave pointer capture or orbit state wedged.
     for(const [id,state] of this.grabs)if(!this.body.grabs.includes(state.grab))this.finishRelease(id);
     if(this.body.grab)return; // Freeze both orbit and translation for the entire grab.
+    const offscreen=this.projectedOffscreen();
     const target=this.temp.copy(this.body.center);target.y=Math.max(.025,target.y);
-    this.follow.lerp(target,1-Math.exp(-4.5*dt));
+    this.follow.lerp(target,1-Math.exp(-(offscreen?12:4.5)*dt));
     this.temp.copy(this.follow).sub(this.controls.target);
     this.camera.position.add(this.temp);this.controls.target.copy(this.follow);
     this.controls.update();
     this.chase.update(this.camera,this.ridingVehicle()?this.vehicleHeading():undefined,dt);
     this.soccerCamera.update(this.camera,dt,this.soccerCameraObstacles());
+    if(!soccer&&!riding&&(offscreen||this.idle>3.5))this.easeHome(dt,offscreen?4.5:1.6);
+  }
+  private projectedOffscreen() {
+    this.ndc.copy(this.body.center);this.ndc.project(this.camera);
+    return this.ndc.z<-1||this.ndc.z>1||Math.abs(this.ndc.x)>.92||Math.abs(this.ndc.y)>.92;
+  }
+  /** Bring orbit back in front of the jelly so the camera cannot stay lost. */
+  private easeHome(dt:number,lambda:number) {
+    this.scratchOffset.copy(this.camera.position).sub(this.controls.target);
+    this.scratchSpherical.setFromVector3(this.scratchOffset);
+    const radius=THREE.MathUtils.clamp(this.homeSpherical.radius,this.controls.minDistance,this.controls.maxDistance);
+    const phi=THREE.MathUtils.clamp(this.homeSpherical.phi,this.controls.minPolarAngle,this.controls.maxPolarAngle);
+    this.scratchSpherical.radius=THREE.MathUtils.damp(this.scratchSpherical.radius,radius,lambda,dt);
+    this.scratchSpherical.phi=THREE.MathUtils.damp(this.scratchSpherical.phi,phi,lambda,dt);
+    const delta=Math.atan2(Math.sin(this.rig.yaw-this.scratchSpherical.theta),Math.cos(this.rig.yaw-this.scratchSpherical.theta));
+    this.scratchSpherical.theta+=delta*(1-Math.exp(-lambda*dt));
+    this.scratchOffset.setFromSpherical(this.scratchSpherical);
+    this.camera.position.copy(this.controls.target).add(this.scratchOffset);
+    this.controls.update();
   }
   recenter() {this.clear();this.rig.reset();}
   teleport() {

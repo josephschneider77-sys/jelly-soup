@@ -96,6 +96,9 @@ export class Facilities {
     if(this.hint.textContent!==hint)this.hint.textContent=hint;
     const mobileAction=candidate.mobileAction??action;
     if(this.button.textContent!==mobileAction)this.button.textContent=mobileAction;
+    const mode=candidate.active?'leave':'play';
+    const dataset=this.button.dataset;
+    if(dataset&&dataset.mode!==mode)dataset.mode=mode;
   }
   reset() {for(const item of this.items)item.reset();this.prompt.hidden=true;}
   resetForTravel() {for(const item of this.items)if(!item.persistAcrossTravel)item.reset();this.prompt.hidden=true;}
