@@ -52,9 +52,10 @@ export function applyBathForces(body: SoftBody, level: number, h: number, faucet
     if (faucet.on) {
       const dx = px - faucet.x, dz = pz - faucet.z;
       if (dx * dx < .0036 && dz > -.02 && dz < .18 && py > level - .1) {
-        v[j + 2] += 7 * h;
-        v[j + 1] -= 1.2 * h;
-        v[j] -= dx * 10 * h;
+        // Slide across the tub. A push toward +z parks the jelly behind the front lip.
+        v[j] += 6.5 * h;
+        v[j + 2] -= 1.6 * h;
+        v[j + 1] -= .4 * h;
       }
     }
     speed += v[j] * v[j] + v[j + 1] * v[j + 1] + v[j + 2] * v[j + 2];

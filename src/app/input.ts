@@ -6,6 +6,7 @@ import type { JellySound } from './sound.ts';
 import { surfaceGrab, projectGrabTarget, advanceGrabTarget } from '../physics/grab.ts';
 import { MAX_GRABS } from '../physics/soft-body-kernel.js';
 import { SurfaceBVH } from '../graphics/optics/refractive-light.js';
+import { BATH_ORBIT } from './bath/layout.ts';
 type PointerGrab={
   grab:NonNullable<ReturnType<typeof surfaceGrab>>;
   pointerType:string;
@@ -27,6 +28,10 @@ export type ToyTap={
   radius:number;
   use:()=>void;
   object?:THREE.Object3D;
+  /** Shown by the qc=1 probe while this toy is held. */
+  label?:string;
+  /** Bubbles sit in front of the jelly. A hit on both still picks the jelly. */
+  yieldsToJelly?:boolean;
   /** Drag on a plane through center.y. Pointer-down still reaches OrbitControls. */
   drag?:(phase:'start'|'move'|'end',point:THREE.Vector3)=>void;
 };
@@ -44,18 +49,11 @@ export class Input {
   /** While true, taps still land but the body is not grabbed. */
   bodyControlled:()=>boolean=()=>false;
   menuOpen:()=>boolean=()=>false;
-  /** Short tap on empty table: hop. Short tap on the jelly: squish. */
-  onTapGround:()=>void=()=>{this.rig.jump();};
+  /** Short tap on empty water. The bath splashes; it does not hop. */
+  onTapGround:()=>void=()=>{};
   onTapJelly:()=>void=()=>{};
   readonly toyTaps:ToyTap[]=[];
   readonly controls:OrbitControls;
-  private keys=new Set<string>();
-  private touchKeys=new Map<number,string>();
-  private joystickPointer:number|null=null;
-  private joystickX=0;
-  private joystickZ=0;
-  private joystickElement:HTMLButtonElement|null=null;
-  private joystickKnob:HTMLElement|null=null;
   private toyDrag:{id:number;toy:ToyTap;x:number;y:number;t:number}|null=null;
   private readonly toyPlane=new THREE.Plane(new THREE.Vector3(0,1,0),0);
   private readonly dragPoint=new THREE.Vector3();
@@ -87,7 +85,8 @@ export class Input {
     const c=this.controls;
     c.target.copy(body.center);this.follow.copy(c.target);
     c.enablePan=false;c.enableDamping=true;c.dampingFactor=.07;
-    c.minDistance=.2;c.maxDistance=.9;c.minPolarAngle=.32;c.maxPolarAngle=1.08;
+    c.minDistance=BATH_ORBIT.minDistance;c.maxDistance=BATH_ORBIT.maxDistance;
+    c.minPolarAngle=BATH_ORBIT.minPolar;c.maxPolarAngle=BATH_ORBIT.maxPolar;
     c.rotateSpeed=.55;c.zoomSpeed=.5;c.update();
     this.homeSpherical.setFromVector3(this.scratchOffset.copy(camera.position).sub(c.target));
     c.addEventListener('start',()=>{this.orbiting=true;this.idle=0;});
@@ -100,65 +99,11 @@ export class Input {
     // transition loses that path and leaves a grip wedged forever.
     window.addEventListener('pointerup',this.end,{capture:true,signal});
     window.addEventListener('pointercancel',this.end,{capture:true,signal});
-    window.addEventListener('pointerup',this.releaseJoystick,{capture:true,signal});
-    window.addEventListener('pointercancel',this.releaseJoystick,{capture:true,signal});
     canvas.addEventListener('lostpointercapture',this.end,{signal});
     window.addEventListener('keydown',this.keyDown,{signal});
-    window.addEventListener('keyup',e=>this.keys.delete(e.code),{signal});
     window.addEventListener('blur',this.clear,{signal});
     document.addEventListener('visibilitychange',()=>{if(document.hidden) this.clear();},{signal});
-    this.joystickElement=document.querySelector<HTMLButtonElement>('[data-joystick]');
-    this.joystickKnob=this.joystickElement?.querySelector<HTMLElement>('.joystick-knob')??null;
-    if(this.joystickElement) {
-      this.joystickElement.addEventListener('pointerdown',this.joystickStart,{signal});
-      this.joystickElement.addEventListener('pointermove',this.joystickMove,{passive:false,signal});
-      this.joystickElement.addEventListener('pointerup',this.releaseJoystick,{signal});
-      this.joystickElement.addEventListener('pointercancel',this.releaseJoystick,{signal});
-      this.joystickElement.addEventListener('lostpointercapture',this.releaseJoystick,{signal});
-    }
-    for(const button of document.querySelectorAll<HTMLButtonElement>('[data-control]')) {
-      button.addEventListener('pointerdown',e=>{
-        e.preventDefault();void sound.unlock().catch(()=>{});button.setPointerCapture(e.pointerId);
-        const code=button.dataset.control!;
-        this.touchKeys.set(e.pointerId,code);button.classList.add('held');
-        if(code==='Space')this.onTapGround();
-      },{signal});
-      const release=(e:PointerEvent)=>{
-        this.touchKeys.delete(e.pointerId);button.classList.remove('held');
-      };
-      button.addEventListener('pointerup',release,{signal});
-      button.addEventListener('pointercancel',release,{signal});
-      button.addEventListener('lostpointercapture',release,{signal});
-    }
   }
-  private joystickStart=(e:PointerEvent)=>{
-    if(this.joystickPointer!==null||(e.pointerType==='mouse'&&e.button!==0))return;
-    e.preventDefault();e.stopPropagation();void this.sound.unlock().catch(()=>{});
-    this.joystickPointer=e.pointerId;this.joystickElement?.setPointerCapture(e.pointerId);
-    this.joystickElement?.classList.add('held');this.joystickMove(e);
-  };
-  private joystickMove=(e:PointerEvent)=>{
-    const joystick=this.joystickElement;
-    if(!joystick||this.joystickPointer!==e.pointerId)return;
-    e.preventDefault();e.stopPropagation();
-    const rect=joystick.getBoundingClientRect(),knob=this.joystickKnob?.getBoundingClientRect();
-    const radius=Math.max(1,Math.min(rect.width,rect.height)/2-(knob?.width??0)/2-5);
-    const dx=e.clientX-(rect.left+rect.width/2),dy=e.clientY-(rect.top+rect.height/2);
-    const distance=Math.hypot(dx,dy),scale=distance>radius?radius/distance:1;
-    const offsetX=dx*scale,offsetY=dy*scale;
-    this.joystickX=offsetX/radius;this.joystickZ=-offsetY/radius;
-    this.joystickKnob?.style.setProperty('--joystick-x',`${offsetX}px`);
-    this.joystickKnob?.style.setProperty('--joystick-y',`${offsetY}px`);
-  };
-  private releaseJoystick=(e:PointerEvent)=>{
-    if(this.joystickPointer!==e.pointerId)return;
-    e.preventDefault();
-    const joystick=this.joystickElement,id=this.joystickPointer;
-    this.joystickPointer=null;this.joystickX=0;this.joystickZ=0;
-    this.joystickKnob?.style.setProperty('--joystick-x','0px');
-    this.joystickKnob?.style.setProperty('--joystick-y','0px');joystick?.classList.remove('held');
-    if(id!==null&&joystick?.hasPointerCapture(id))joystick.releasePointerCapture(id);
-  };
   private eventRay(e:PointerEvent) {
     const rect=this.canvas.getBoundingClientRect();
     this.pointer.set((e.clientX-rect.left)/rect.width*2-1,-(e.clientY-rect.top)/rect.height*2+1);
@@ -175,9 +120,28 @@ export class Input {
     }
     return false;
   }
+  /** Event time, not the time the handler runs. Slow frames must not fail a quick tap. */
+  private eventTime(e:{timeStamp?:number}) {
+    return typeof e.timeStamp==='number'&&Number.isFinite(e.timeStamp)?e.timeStamp:performance.now();
+  }
   private begin=(e:PointerEvent)=>{
     if(this.menuOpen())return;
-    if(e.button!==0||this.grabs.has(e.pointerId))return;
+    if(e.button!==0)return;
+    // The mouse reuses one pointer id. A mash arrives while the last grip is still
+    // waiting for physics, and that used to drop every tap after the first.
+    if(this.grabs.has(e.pointerId)){
+      const prev=this.grabs.get(e.pointerId)!;
+      if(!prev.releasePending){
+        const moved=Math.hypot(e.clientX-prev.originX,e.clientY-prev.originY);
+        prev.jellyTap=moved<TAP_PX&&this.eventTime(e)-prev.originTime<TAP_MS;
+        prev.releasePending=true;
+      }
+      this.finishRelease(e.pointerId);
+    }
+    if(this.toyDrag?.id===e.pointerId){
+      this.toyDrag.toy.drag?.('end',this.dragPoint);this.toyDrag=null;
+      this.controls.enabled=this.body.grabs.length===0;
+    }
     // Never cancel pointerdown. OrbitControls listens on bubble; a capture
     // stopImmediatePropagation here is what made every drag look dead.
     const pick=this.pickPointer(e);
@@ -195,7 +159,7 @@ export class Input {
         grab,pointerType:e.pointerType,
         plane:new THREE.Plane().setFromNormalAndCoplanarPoint(this.temp,point),rawTarget:point.clone(),
         releasePending:false,releaseStepsRemaining:0,physicsSteps:0,commandVersion:0,consumedVersion:0,
-        originX:e.clientX,originY:e.clientY,originTime:performance.now(),jellyTap:false,
+        originX:e.clientX,originY:e.clientY,originTime:this.eventTime(e),jellyTap:false,
       });
       // Disable before the event reaches OrbitControls on the bubble path.
       this.controls.enabled=false;
@@ -206,7 +170,7 @@ export class Input {
     if(pick.kind==='toy'&&pick.toy?.drag){
       // Same rule as a jelly grab: orbit sees enabled=false, and pointerdown is not cancelled.
       this.controls.enabled=false;
-      this.toyDrag={id:e.pointerId,toy:pick.toy,x:e.clientX,y:e.clientY,t:performance.now()};
+      this.toyDrag={id:e.pointerId,toy:pick.toy,x:e.clientX,y:e.clientY,t:this.eventTime(e)};
       this.dragToy(e,pick.toy,'start');
       return;
     }
@@ -242,7 +206,7 @@ export class Input {
     if(this.toyDrag?.id===e.pointerId){
       const drag=this.toyDrag;this.toyDrag=null;
       const moved=Math.hypot(e.clientX-drag.x,e.clientY-drag.y);
-      const tap=e.type==='pointerup'&&moved<TAP_PX&&performance.now()-drag.t<TAP_MS;
+      const tap=e.type==='pointerup'&&moved<TAP_PX&&this.eventTime(e)-drag.t<TAP_MS;
       this.dragToy(e,drag.toy,'end');
       if(tap){void this.sound.unlock().catch(()=>{});drag.toy.use();}
       this.controls.enabled=this.body.grabs.length===0;
@@ -258,7 +222,7 @@ export class Input {
     // pointerup itself may be the only event carrying an abrupt drag endpoint.
     if(e.type==='pointerup')this.captureDragTarget(e,state);
     const moved=Math.hypot(e.clientX-state.originX,e.clientY-state.originY);
-    state.jellyTap=moved<TAP_PX&&performance.now()-state.originTime<TAP_MS;
+    state.jellyTap=moved<TAP_PX&&this.eventTime(e)-state.originTime<TAP_MS;
     e.preventDefault();e.stopImmediatePropagation();
     // Mark released before releasing capture, which may itself dispatch an event.
     state.releasePending=true;
@@ -267,25 +231,40 @@ export class Input {
     this.syncGrabControls();
     // Retain each released grip until physics consumes its final target sample.
   };
-  /** Nearest of the jelly mesh, a toy mesh, or the floor. The jelly wins a tie. */
+  /** Nearest visible toy, unless a bubble is only in front of the jelly. */
   private pickPointer(e:PointerEvent):PointerPick {
     this.eventRay(e);this.grabBVH.refit();
     const ray=this.raycaster.ray;
     const jelly=this.grabBVH.hit([ray.origin.x,ray.origin.y,ray.origin.z],[ray.direction.x,ray.direction.y,ray.direction.z]);
     const jellyDistance=jelly?.distance??Infinity;
-    let toy:ToyTap|null=null,toyDistance=Infinity;
+    let solid:ToyTap|null=null,solidDistance=Infinity,soft:ToyTap|null=null,softDistance=Infinity;
     for(const candidate of this.toyTaps) {
+      if(!this.toyVisible(candidate))continue;
       const distance=this.toyDistance(candidate);
-      if(distance<toyDistance){toy=candidate;toyDistance=distance;}
+      if(candidate.yieldsToJelly){if(distance<softDistance){soft=candidate;softDistance=distance;}}
+      else if(distance<solidDistance){solid=candidate;solidDistance=distance;}
     }
-    if(jelly&&jellyDistance<=toyDistance)return {kind:'jelly',toy:null,hit:jelly};
-    if(toy)return {kind:'toy',toy,hit:null};
+    if(jelly&&jellyDistance<=solidDistance)return {kind:'jelly',toy:null,hit:jelly};
+    if(solid)return {kind:'toy',toy:solid,hit:null};
+    if(jelly)return {kind:'jelly',toy:null,hit:jelly};
+    if(soft)return {kind:'toy',toy:soft,hit:null};
     return {kind:'floor',toy:null,hit:null};
+  }
+  private toyVisible(toy:ToyTap) {
+    let node=toy.object??null;
+    while(node){if(node.visible===false)return false;node=node.parent;}
+    return true;
+  }
+  private hitVisible(object:THREE.Object3D) {
+    let node:THREE.Object3D|null=object;
+    while(node){if(node.visible===false)return false;node=node.parent;}
+    return true;
   }
   private toyDistance(toy:ToyTap) {
     if(toy.object) {
+      if(!this.toyVisible(toy))return Infinity;
       toy.object.updateWorldMatrix(true,true);
-      const hit=this.raycaster.intersectObject(toy.object,true)[0];
+      const hit=this.raycaster.intersectObject(toy.object,true).find(item=>this.hitVisible(item.object));
       return hit?.distance??Infinity;
     }
     const radius=Math.min(toy.radius,TOY_PROXY_RADIUS);
@@ -302,7 +281,7 @@ export class Input {
     toy.drag(phase,this.dragPoint);
   }
   private armTap(e:PointerEvent) {
-    this.pendingTap={id:e.pointerId,x:e.clientX,y:e.clientY,t:performance.now()};
+    this.pendingTap={id:e.pointerId,x:e.clientX,y:e.clientY,t:this.eventTime(e)};
     this.idle=0;
   }
   private finishPendingTap(e:PointerEvent) {
@@ -310,7 +289,7 @@ export class Input {
     if(!tap||tap.id!==e.pointerId)return;
     this.pendingTap=null;
     const moved=Math.hypot(e.clientX-tap.x,e.clientY-tap.y);
-    if(moved>=TAP_PX||performance.now()-tap.t>=TAP_MS)return;
+    if(moved>=TAP_PX||this.eventTime(e)-tap.t>=TAP_MS)return;
     const pick=this.pickPointer(e);
     this.idle=0;
     if(pick.kind==='jelly'){this.onTapJelly();return;}
@@ -338,44 +317,18 @@ export class Input {
     if(this.menuOpen())return;
     if((e.target as HTMLElement)?.closest('input,textarea,select,[contenteditable="true"]'))return;
     if(e.code==='Space'&&(e.target as HTMLElement)?.closest('button'))return;
-    if(['KeyW','KeyA','KeyS','KeyD','ArrowUp','ArrowLeft','ArrowDown','ArrowRight','Space'].includes(e.code)) {
-      e.preventDefault();this.keys.add(e.code);void this.sound.unlock().catch(()=>{});
-    }
-    if(e.code==='Space'&&!e.repeat)this.onTapGround();
+    if(e.code==='Space'&&!e.repeat){e.preventDefault();void this.sound.unlock().catch(()=>{});this.onTapGround();}
     if(e.code==='Escape')this.finishRelease();
   };
   clear=()=>{
-    this.keys.clear();this.touchKeys.clear();
-    if(this.joystickPointer!==null) {
-      const id=this.joystickPointer,joystick=this.joystickElement;
-      this.joystickPointer=null;this.joystickX=0;this.joystickZ=0;
-      this.joystickKnob?.style.setProperty('--joystick-x','0px');
-      this.joystickKnob?.style.setProperty('--joystick-y','0px');joystick?.classList.remove('held');
-      if(joystick?.hasPointerCapture(id))joystick.releasePointerCapture(id);
-    }
     if(this.toyDrag){this.toyDrag.toy.drag?.('end',this.dragPoint);this.toyDrag=null;this.controls.enabled=this.body.grabs.length===0;}
     this.finishRelease();this.pendingTap=null;this.rig.move.set(0,0,0);
     document.querySelectorAll('.held').forEach(el=>el.classList.remove('held'));
   };
-  private pressed(...codes:string[]) {
-    for(const code of codes) {
-      if(this.keys.has(code))return true;
-      for(const touchCode of this.touchKeys.values())if(touchCode===code)return true;
-    }
-    return false;
-  }
   step(h:number) {
-    if(this.menuOpen()){this.rig.move.set(0,0,0);return;}
-    let x=Number(this.pressed('KeyD','ArrowRight'))-Number(this.pressed('KeyA','ArrowLeft'))+this.joystickX;
-    let z=Number(this.pressed('KeyW','ArrowUp'))-Number(this.pressed('KeyS','ArrowDown'))+this.joystickZ;
-    const inputLength=Math.hypot(x,z);
-    if(inputLength>1){x/=inputLength;z/=inputLength;}
-    if(this.bodyControlled()){this.rig.move.set(0,0,0);return;}
-    if(x||z) {
-      this.camera.getWorldDirection(this.temp);this.temp.y=0;this.temp.normalize();
-      this.rig.move.set(-this.temp.z*x+this.temp.x*z,0,this.temp.x*x+this.temp.z*z);
-      if(this.rig.move.lengthSq()>1)this.rig.move.normalize();
-    } else this.rig.move.set(0,0,0);
+    // The bath does not walk. Muscles stay off so they cannot fight the water.
+    this.rig.move.set(0,0,0);
+    if(this.menuOpen()||this.bodyControlled())return;
     for(const state of this.grabs.values()) {
       const grab=state.grab;
       advanceGrabTarget(grab.target,state.rawTarget,h,grab.point);
@@ -392,12 +345,11 @@ export class Input {
     }
   }
   update(dt:number) {
-    const grazing=Math.PI/2-THREE.MathUtils.degToRad(this.camera.fov)/2-.08;
-    this.controls.maxDistance=.9;
-    this.controls.minDistance=.2;
-    this.controls.minPolarAngle=.32;
-    this.controls.maxPolarAngle=Math.min(grazing,1.08);
-    const busy=this.orbiting||this.pendingTap!==null||this.toyDrag!==null||this.keys.size>0||this.joystickPointer!==null||this.touchKeys.size>0||this.grabs.size>0;
+    this.controls.maxDistance=BATH_ORBIT.maxDistance;
+    this.controls.minDistance=BATH_ORBIT.minDistance;
+    this.controls.minPolarAngle=BATH_ORBIT.minPolar;
+    this.controls.maxPolarAngle=BATH_ORBIT.maxPolar;
+    const busy=this.orbiting||this.pendingTap!==null||this.toyDrag!==null||this.grabs.size>0;
     if(busy)this.idle=0;else this.idle+=dt;
     for(const [id,state] of this.grabs)if(!this.body.grabs.includes(state.grab))this.finishRelease(id);
     if(this.body.grab||this.toyDrag)return;
@@ -427,10 +379,10 @@ export class Input {
     this.camera.position.copy(this.controls.target).add(this.scratchOffset);
     this.controls.update();
   }
-  /** Jelly grip or sponge drag, for the qc=1 probe. */
-  hold():'jelly'|'sponge'|null {
+  /** Jelly grip or the toy being dragged, for the qc=1 probe. */
+  hold():string|null {
     if([...this.grabs.values()].some(state=>!state.releasePending))return 'jelly';
-    if(this.toyDrag)return 'sponge';
+    if(this.toyDrag)return this.toyDrag.toy.label??'toy';
     return null;
   }
   recenter() {this.clear();this.rig.reset();}

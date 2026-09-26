@@ -22,9 +22,11 @@ assert.match(markup,/<summary>Details<\/summary>/);
 assert.doesNotMatch(markup,/fatal\.hidden=false/);
 const failBody=markup.slice(markup.indexOf('function fail'),markup.indexOf('window.addEventListener'));
 const firstLog=failBody.indexOf('console.error');
-assert(failBody.indexOf('if(reported)return')<firstLog,'a repeated error returns before it logs');
-assert(failBody.indexOf('reported=true')<firstLog,'the log guard is set before console.error');
-assert(failBody.indexOf('toast.hidden=false')<firstLog,'the toast is up before a nested error can log again');
+assert(failBody.indexOf('seenErrors.has(key)')<firstLog,'a repeated error returns before it logs');
+assert.doesNotMatch(failBody,/reported/,'a later different error is not swallowed by one flag');
+assert.match(runtime,/yieldsToJelly/);
+assert.match(runtime,/label: 'duck'/);
+assert.match(readFileSync(new globalThis.URL('../src/app/input.ts',import.meta.url),'utf8'),/eventTime/);
 assert.match(runtime,/__jellyQC/);
 assert.match(runtime,/get\('qc'\) === '1'/);
 assert.match(startup,/This game needs a browser with WebGPU/);
@@ -69,16 +71,16 @@ camera.updateMatrixWorld(true);
 const rig=new Locomotion(body);
 const input=new Input(camera,canvas,body,new Mesh(body.surface.geometry),rig,{unlock:async()=>{}});
 const hits={faucet:0,duck:0,bubble:0,jelly:0,ground:0,sponge:0};
-let spongeMoves=0;
+let spongeMoves=0,duckMoves=0;
 function toy(name,x,y,z,extra={}) {
   const mesh=new Mesh(new BoxGeometry(.06,.06,.06));
   mesh.position.set(x,y,z);mesh.updateMatrixWorld(true);
   const center=new Vector3(x,y,z);
-  input.toyTaps.push({center,radius:.05,object:mesh,use:()=>{hits[name]++;},...extra});
+  input.toyTaps.push({center,radius:.05,object:mesh,label:name,use:()=>{hits[name]++;},...extra});
   return {mesh,center};
 }
 toy('faucet',0,.22,-.12);
-toy('duck',.18,.12,.06);
+toy('duck',.18,.12,.06,{drag:(phase)=>{if(phase==='move')duckMoves++;}});
 toy('bubble',-.18,.18,0);
 toy('sponge',.2,.12,-.08,{drag:(phase,point)=>{if(phase==='move')spongeMoves++;hits.sponge=point.x;}});
 
@@ -87,10 +89,13 @@ function pointer(type,x,y,extra={}) {
   let stopped=0;
   const original=event.stopImmediatePropagation.bind(event);
   event.stopImmediatePropagation=()=>{stopped++;original();};
+  if(extra.timeStamp!=null)Object.defineProperty(event,'timeStamp',{value:extra.timeStamp});
+  const rest={...extra};
+  delete rest.timeStamp;
   Object.assign(event,{
     clientX:x,clientY:y,pageX:x,pageY:y,button:0,buttons:type==='pointerup'?0:1,
     pointerId:1,pointerType:'mouse',stopped:()=>stopped,
-    ...extra,
+    ...rest,
   });
   return event;
 }
@@ -192,21 +197,72 @@ function releaseGrab() {
   canvas.dispatchEvent(pointer('pointerdown',40,height-30));
   windowTarget.dispatchEvent(pointer('pointerup',72,height-30));
   assert.equal(hits.ground,0,'a 32 CSS-pixel drag is not a tap');
-  const clock={t:1000};
+  let now=1000;
   const original=performance.now.bind(performance);
-  performance.now=()=>clock.t;
+  performance.now=()=>now;
   hits.ground=0;
-  canvas.dispatchEvent(pointer('pointerdown',40,height-30));
-  clock.t=1550;
-  windowTarget.dispatchEvent(pointer('pointerup',40,height-30));
-  assert.equal(hits.ground,1,'a 550ms press still taps');
+  canvas.dispatchEvent(pointer('pointerdown',40,height-30,{timeStamp:1000}));
+  now=9000;
+  windowTarget.dispatchEvent(pointer('pointerup',40,height-30,{timeStamp:1400}));
+  assert.equal(hits.ground,1,'a tap uses the event time, not the time the handler runs');
   hits.ground=0;
-  clock.t=3000;
-  canvas.dispatchEvent(pointer('pointerdown',40,height-30));
-  clock.t=3650;
-  windowTarget.dispatchEvent(pointer('pointerup',40,height-30));
+  now=1000;
+  canvas.dispatchEvent(pointer('pointerdown',40,height-30,{timeStamp:2000}));
+  now=9000;
+  windowTarget.dispatchEvent(pointer('pointerup',40,height-30,{timeStamp:2700}));
   assert.equal(hits.ground,0,'a press held past 600ms is not a tap');
   performance.now=original;
+}
+{
+  input.clear();
+  input.onTapJelly=()=>{hits.jelly++;};
+  hits.jelly=0;
+  const pixel=frontPixel();
+  const cover=new Mesh(new BoxGeometry(.18,.18,.03));
+  const front=body.surface.positions;
+  let best=0,bestZ=-Infinity;
+  for(let i=0;i<front.length;i+=3)if(front[i+2]>bestZ){bestZ=front[i+2];best=i;}
+  cover.position.set(front[best],front[best+1],front[best+2]+.04);
+  cover.updateMatrixWorld(true);
+  let stolen=0;
+  input.toyTaps.push({center:cover.position.clone(),radius:.05,object:cover,yieldsToJelly:true,use:()=>{stolen++;}});
+  tap(pixel.x,pixel.y);
+  releaseGrab();
+  assert.equal(stolen,0,'a bubble in front of the jelly does not steal the tap');
+  assert.equal(hits.jelly,1,'tapping the jelly through a bubble still squishes');
+  cover.visible=false;
+  const blocker=new Mesh(new BoxGeometry(.2,.2,.03));
+  blocker.position.copy(cover.position);
+  blocker.visible=false;
+  blocker.updateMatrixWorld(true);
+  let blocked=0;
+  input.toyTaps.push({center:blocker.position.clone(),radius:.05,object:blocker,use:()=>{blocked++;}});
+  hits.jelly=0;
+  tap(pixel.x,pixel.y);
+  releaseGrab();
+  assert.equal(blocked,0,'a hidden toy does not receive the tap');
+  assert.equal(hits.jelly,1,'the jelly still receives a tap hidden toys used to swallow');
+}
+{
+  input.clear();
+  input.onTapJelly=()=>{hits.jelly++;};
+  hits.jelly=0;
+  const pixel=frontPixel();
+  for(let i=0;i<8;i++){
+    canvas.dispatchEvent(pointer('pointerdown',pixel.x,pixel.y,{timeStamp:5000+i*90}));
+    windowTarget.dispatchEvent(pointer('pointerup',pixel.x,pixel.y,{timeStamp:5030+i*90}));
+  }
+  releaseGrab();
+  assert.equal(hits.jelly,8,'eight fast taps all squish');
+}
+{
+  input.clear();
+  const pixel=project(.18,.12,.06);
+  const down=pointer('pointerdown',pixel.x,pixel.y);
+  canvas.dispatchEvent(down);
+  canvas.dispatchEvent(pointer('pointermove',pixel.x+70,pixel.y));
+  windowTarget.dispatchEvent(pointer('pointerup',pixel.x+70,pixel.y));
+  assert(duckMoves>0,'dragging a duck moves it');
 }
 
 console.log('Bath taps: faucet, duck, bubble, and jelly.');

@@ -7,6 +7,7 @@ import { Locomotion } from './locomotion.ts';
 import { JellySound } from './sound.ts';
 import { Bathroom, type BathBubble, type BathDuck } from './bath/bathroom.ts';
 import { applyBathForces, containInTub, placeInTub, pourOn, TUB, type FaucetPush } from './bath/forces.ts';
+import { BATH_HOME } from './bath/layout.ts';
 import { Baby } from '../graphics/character/baby.ts';
 import { createRenderer, resizeView } from '../graphics/scene/renderer.ts';
 import { PHYS } from '../physics/constants.js';
@@ -19,10 +20,10 @@ export async function startGame(stage: (s: string) => void, fail: (e: unknown) =
   document.querySelector('#viewport')!.appendChild(renderer.domElement);
   const sound = new JellySound();
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color('#d7f3ff');
-  scene.fog = new THREE.Fog('#d7f3ff', 2.2, 4.2);
+  scene.background = new THREE.Color('#7ec8f5');
+  scene.fog = new THREE.Fog('#b9e2f8', 4.2, 8);
   const camera = new THREE.PerspectiveCamera(36, 1, .02, 12);
-  camera.position.set(.16, .46, .52);
+  camera.position.set(BATH_HOME.x, BATH_HOME.y, BATH_HOME.z);
   stage('Filling the tub');
   const body = new SoftBody(await loadBabyCage());
   // The face is bound in the jelly's rest pose. Move it into the tub after that.
@@ -34,10 +35,11 @@ export async function startGame(stage: (s: string) => void, fail: (e: unknown) =
   const environment = pmrem.fromScene(new RoomEnvironment(), .04).texture;
   scene.environment = environment;
   baby.setReflectionMap(environment, 1.15);
-  scene.add(new THREE.HemisphereLight('#fff8ee', '#9fd0ff', 1.15));
-  const sun = new THREE.DirectionalLight('#fffaf2', 1.65);
+  scene.add(new THREE.HemisphereLight('#fff1e0', '#6eb6e8', .85));
+  const sun = new THREE.DirectionalLight('#fff6e8', 1.25);
   sun.position.set(.45, .9, .35);
   scene.add(sun);
+  // Squish uses the rig. rig.step() is the walking motor, and its muscles fight the bath.
   const rig = new Locomotion(body);
   camera.lookAt(body.center);
   const input = new Input(camera, renderer.domElement, body, baby.mesh, rig, sound);
@@ -88,27 +90,42 @@ export async function startGame(stage: (s: string) => void, fail: (e: unknown) =
   };
   syncCenters();
   input.toyTaps.push({
-    center: faucetCenter, radius: .05, object: bath.faucet,     use: () => {
+    center: faucetCenter, radius: .05, object: bath.faucet, label: 'faucet', use: () => {
       note('faucet');
       faucet.on = !faucet.on;
       bath.setFaucet(faucet.on);
       splash(.2);
     },
   });
-  bath.ducks.forEach((duck, i) => input.toyTaps.push({
-    center: duckCenters[i], radius: .05, object: duck.group,     use: () => {
-      note('duck');
-      sound.squeak();
-      duck.vx += (Math.random() - .5) * .35;
-      duck.vz += (Math.random() - .5) * .35;
-      giggle();
-    },
-  }));
+  bath.ducks.forEach((duck, i) => {
+    const offset = new THREE.Vector3();
+    input.toyTaps.push({
+      center: duckCenters[i], radius: .05, object: duck.group, label: 'duck',
+      use: () => {
+        note('duck');
+        sound.squeak();
+        duck.vx += (Math.random() - .5) * .35;
+        duck.vz += (Math.random() - .5) * .35;
+        giggle();
+      },
+      drag: (phase, point) => {
+        note('duck');
+        if (phase === 'start') { duck.held = true; offset.set(duck.x - point.x, 0, duck.z - point.z); }
+        if (phase === 'end') { duck.held = false; return; }
+        duck.x = THREE.MathUtils.clamp(point.x + offset.x, -TUB.halfX + .03, TUB.halfX - .03);
+        duck.z = THREE.MathUtils.clamp(point.z + offset.z, -TUB.halfZ + .03, TUB.halfZ - .03);
+        duck.vx = 0; duck.vz = 0;
+        duck.group.position.set(duck.x, level + .02, duck.z);
+        duckCenters[i].copy(duck.group.position);
+      },
+    });
+  });
   bath.bubbles.forEach((bubble, i) => input.toyTaps.push({
-    center: bubbleCenters[i], radius: .05, object: bubble.mesh, use: () => popBubble(bubble),
+    center: bubbleCenters[i], radius: .05, object: bubble.mesh, label: 'bubble', yieldsToJelly: true,
+    use: () => popBubble(bubble),
   }));
   input.toyTaps.push({
-    center: spongeCenter, radius: .05, object: bath.sponge.group,
+    center: spongeCenter, radius: .05, object: bath.sponge.group, label: 'sponge',
     use: () => { note('sponge'); squeeze(); },
     drag: (phase, point) => {
       note('sponge');
@@ -121,7 +138,7 @@ export async function startGame(stage: (s: string) => void, fail: (e: unknown) =
     },
   });
   input.toyTaps.push({
-    center: cupCenter, radius: .05, object: bath.cup,     use: () => {
+    center: cupCenter, radius: .05, object: bath.cup, label: 'cup', use: () => {
       note('cup');
       pourOn(body, body.center.x, body.center.z);
       splash(.7);
@@ -151,7 +168,7 @@ export async function startGame(stage: (s: string) => void, fail: (e: unknown) =
     for (let a = 0; a < bath.ducks.length; a++) for (let b = a + 1; b < bath.ducks.length; b++) {
       const left = bath.ducks[a], right = bath.ducks[b];
       const dx = right.x - left.x, dz = right.z - left.z, dist = Math.hypot(dx, dz) || .0001;
-      if (dist < .1) {
+      if (dist < .06) {
         const push = (.1 - dist) * 2.2;
         left.vx -= dx / dist * push; left.vz -= dz / dist * push;
         right.vx += dx / dist * push; right.vz += dz / dist * push;
@@ -159,10 +176,14 @@ export async function startGame(stage: (s: string) => void, fail: (e: unknown) =
     }
   }
   function separateDuck(duck: BathDuck, jellyX: number, jellyZ: number, h: number) {
+    if (duck.held) {
+      duck.group.position.y = level + .02 + Math.sin(simTime * 2 + duck.phase) * .004;
+      return;
+    }
     duck.vx += (duck.homeX - duck.x) * 1.5 * h;
     duck.vz += (duck.homeZ - duck.z) * 1.5 * h;
     const dx = duck.x - jellyX, dz = duck.z - jellyZ, dist = Math.hypot(dx, dz);
-    if (dist < .09 && dist > 1e-4) {
+    if (dist < .06 && dist > 1e-4) {
       const push = (.09 - dist) * 4;
       duck.vx += dx / dist * push; duck.vz += dz / dist * push;
       const v = body.velocity;

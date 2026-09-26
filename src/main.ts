@@ -18,27 +18,22 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML=`
   <div id="play-error" class="play-error" hidden role="alert"><p id="play-error-message"></p><button id="play-retry" type="button">Try again</button></div>
 `;
 
-let stage='Loading the game',failed=false,playing=false,reported=false,game:{stop:()=>void}|undefined;
+let stage='Loading the game',failed=false,playing=false,game:{stop:()=>void}|undefined;
+const seenErrors=new Set<string>();
 function fail(reason:unknown) {
-  if(reported)return;
-  if(playing) {
-    const toast=document.querySelector<HTMLElement>('#play-error')!;
-    if(!toast.hidden)return;
-    reported=true;
-    toast.hidden=false;
-    const hasGpu=typeof navigator.gpu!=='undefined'&&navigator.gpu!=null;
-    const {error,summary}=failureCopy(reason,hasGpu);
-    document.querySelector('#play-error-message')!.textContent=summary;
-    console.error(`[Jelly Soup / ${stage}]`,error);
-    return;
-  }
-  if(failed)return;
-  reported=true;
-  failed=true;
   const hasGpu=typeof navigator.gpu!=='undefined'&&navigator.gpu!=null;
   const {error,summary,detail}=failureCopy(reason,hasGpu);
+  const key=`${error.name}:${error.message}\n${error.stack??''}`;
+  if(seenErrors.has(key))return;
+  seenErrors.add(key);
   console.error(`[Jelly Soup / ${stage}]`,error);
-  game?.stop();
+  if(playing) {
+    const toast=document.querySelector<HTMLElement>('#play-error')!;
+    toast.hidden=false;
+    document.querySelector('#play-error-message')!.textContent=summary;
+    return;
+  }
+  if(!failed){failed=true;game?.stop();}
   const loading=document.querySelector('#loading')!;
   loading.classList.remove('hidden');loading.classList.add('failed');
   document.querySelector('#load-title')!.classList.remove('sr-only');

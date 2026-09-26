@@ -1,5 +1,6 @@
 import * as THREE from 'three/webgpu';
 import { positionLocal, sin, time, uniform, vec3 } from 'three/tsl';
+import { CUP_HOME, DUCK_HOME, FAUCET_HOME, SPONGE_HOME } from './layout.ts';
 import { TUB } from './forces.ts';
 
 const pastel = (hex: string) => new THREE.MeshStandardMaterial({ color: hex, roughness: .72, metalness: 0 });
@@ -14,6 +15,7 @@ export type BathDuck = {
   vx: number;
   vz: number;
   phase: number;
+  held: boolean;
 };
 
 export type BathBubble = {
@@ -51,11 +53,7 @@ export class Bathroom {
     this.group.add(this.faucet);
     this.water = this.makeWater();
     this.group.add(this.water);
-    this.ducks = [
-      this.duck(-.14, .05, 0),
-      this.duck(.15, .02, 1.4),
-      this.duck(.02, .11, 2.6),
-    ];
+    this.ducks = DUCK_HOME.map(([x, z], i) => this.duck(x, z, i * 1.4));
     this.bubbles = Array.from({ length: 8 }, (_, i) => this.bubble(i));
     this.sponge = this.makeSponge();
     this.cup = this.makeCup();
@@ -74,7 +72,7 @@ export class Bathroom {
   }
   resetToys() {
     for (const duck of this.ducks) {
-      duck.x = duck.homeX; duck.z = duck.homeZ; duck.vx = 0; duck.vz = 0;
+      duck.x = duck.homeX; duck.z = duck.homeZ; duck.vx = 0; duck.vz = 0; duck.held = false;
       this.placeDuck(duck);
     }
     this.sponge.group.position.set(this.sponge.homeX, this.level + .045, this.sponge.homeZ);
@@ -103,9 +101,19 @@ export class Bathroom {
   private respawn(bubble: BathBubble, seed: number) {
     bubble.alive = true;
     bubble.wait = 0;
-    bubble.x = (seed - .5) * .36;
-    bubble.z = (Math.sin(seed * 12) - .2) * .16;
-    bubble.y = this.level + .01 + seed * .04;
+    // Slots sit beside and behind the jelly, never on the camera's line to its face.
+    const slots: ReadonlyArray<readonly [number, number]> = [
+      [-.22, -.02], [.22, .02], [-.16, -.14], [.16, -.14],
+      [-.24, .1], [.24, .1], [-.08, -.16], [.1, -.16],
+    ];
+    const slot = slots[Math.floor(seed * slots.length) % slots.length];
+    let x = slot[0] + (seed - .5) * .03;
+    let z = slot[1] + Math.sin(seed * 9) * .02;
+    if (Math.hypot(x, z) < .1) x += x < 0 ? -.06 : .06;
+    if (Math.abs(x) < .07 && z > -.05) z = -.14;
+    bubble.x = x;
+    bubble.z = z;
+    bubble.y = this.level + .03 + (seed % .2);
     bubble.mesh.visible = true;
     bubble.mesh.position.set(bubble.x, bubble.y, bubble.z);
   }
@@ -114,12 +122,11 @@ export class Bathroom {
     const tiles = tileTexture();
     const floor = new THREE.Mesh(new THREE.BoxGeometry(2.4, .04, 2.4), new THREE.MeshStandardMaterial({ map: tiles, roughness: .84, metalness: 0 }));
     floor.position.y = -.02;
-    const wallMat = pastel('#f6fbff');
-    const back = new THREE.Mesh(new THREE.BoxGeometry(2.4, 1.35, .06), wallMat);
+    const back = new THREE.Mesh(new THREE.BoxGeometry(2.4, 1.35, .06), pastel('#ffb59a'));
     back.position.set(0, .64, -.72);
-    const left = new THREE.Mesh(new THREE.BoxGeometry(.06, 1.35, 2.2), pastel('#fff4f8'));
+    const left = new THREE.Mesh(new THREE.BoxGeometry(.06, 1.35, 2.2), pastel('#ffe56a'));
     left.position.set(-1.15, .64, .1);
-    const right = new THREE.Mesh(new THREE.BoxGeometry(.06, 1.35, 2.2), pastel('#f3fff8'));
+    const right = new THREE.Mesh(new THREE.BoxGeometry(.06, 1.35, 2.2), pastel('#7ddec0'));
     right.position.set(1.15, .64, .1);
     const windowFrame = new THREE.Mesh(new THREE.BoxGeometry(.46, .34, .04), glossy('#ffffff', .3));
     windowFrame.position.set(.35, .78, -.68);
@@ -136,27 +143,33 @@ export class Bathroom {
   }
   private tub() {
     const tub = new THREE.Group();
-    const ceramic = glossy('#fffdf8', .22);
+    const ceramic = glossy('#fff1e4', .28);
     const shell = (w: number, h: number, d: number, x: number, y: number, z: number) => {
       const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), ceramic);
       mesh.position.set(x, y, z); tub.add(mesh);
     };
     shell(.7, .05, .46, 0, .02, 0);
-    shell(.04, .22, .46, -.34, .12, 0);
-    shell(.04, .22, .46, .34, .12, 0);
-    shell(.7, .22, .04, 0, .12, -.22);
-    shell(.7, .07, .04, 0, .055, .22);
-    const rim = glossy('#f4fbff', .16);
-    for (const [w, d, x, z] of [[.74, .05, 0, -.24], [.74, .05, 0, .24], [.05, .5, -.36, 0], [.05, .5, .36, 0]] as const) {
-      const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, .035, d), rim);
-      mesh.position.set(x, .22, z); tub.add(mesh);
-    }
+    shell(.04, .14, .46, -.34, .08, 0);
+    shell(.04, .14, .46, .34, .08, 0);
+    shell(.7, .16, .04, 0, .09, -.22);
+    // A low front lip, so the near wall does not hide the water.
+    shell(.7, .04, .04, 0, .035, .2);
+    const rim = glossy('#ffd0dc', .2);
+    const backRim = new THREE.Mesh(new THREE.BoxGeometry(.74, .03, .05), rim);
+    backRim.position.set(0, .17, -.24);
+    const sideL = new THREE.Mesh(new THREE.BoxGeometry(.05, .03, .46), rim);
+    sideL.position.set(-.36, .15, 0);
+    const sideR = sideL.clone();
+    sideR.position.x = .36;
+    const frontRim = new THREE.Mesh(new THREE.BoxGeometry(.74, .02, .04), rim);
+    frontRim.position.set(0, .055, .22);
+    tub.add(backRim, sideL, sideR, frontRim);
     return tub;
   }
   private makeWater() {
     const material = new THREE.MeshPhysicalNodeMaterial({
-      color: '#8fd4ff', roughness: .08, metalness: 0, transmission: 0,
-      transparent: true, opacity: .62, clearcoat: 1, clearcoatRoughness: .04,
+      color: '#1aa0e0', roughness: .08, metalness: 0, transmission: 0,
+      transparent: true, opacity: .5, clearcoat: 1, clearcoatRoughness: .04,
       depthWrite: false, side: THREE.DoubleSide,
     });
     const wave = sin(positionLocal.x.mul(26).add(time.mul(1.6))).mul(.0032)
@@ -171,14 +184,14 @@ export class Bathroom {
   }
   private makeFaucet() {
     const faucet = new THREE.Group();
-    faucet.position.set(0, .2, -.18);
-    const metal = glossy('#f7fbff', .12);
+    faucet.position.set(FAUCET_HOME.x, FAUCET_HOME.y, FAUCET_HOME.z);
+    const metal = glossy('#c5d0dc', .18);
     metal.metalness = .55;
     const neck = new THREE.Mesh(new THREE.CylinderGeometry(.018, .02, .1, 12), metal);
     neck.position.y = .04;
     const spout = new THREE.Mesh(new THREE.CylinderGeometry(.016, .016, .1, 12), metal);
     spout.rotation.x = Math.PI / 2; spout.position.set(0, .08, .05);
-    const handle = new THREE.Mesh(new THREE.SphereGeometry(.034, 16, 12), glossy('#ffd0e0', .28));
+    const handle = new THREE.Mesh(new THREE.SphereGeometry(.034, 16, 12), glossy('#ff5d8f', .32));
     handle.position.set(.07, .09, .01);
     faucet.add(neck, spout, handle);
     return faucet;
@@ -186,7 +199,7 @@ export class Bathroom {
   private makeStream() {
     const mesh = new THREE.Mesh(
       new THREE.CylinderGeometry(.012, .02, .16, 10),
-      new THREE.MeshStandardMaterial({ color: '#c6ecff', transparent: true, opacity: .55, roughness: .05, depthWrite: false }),
+      new THREE.MeshStandardMaterial({ color: '#7ecfff', transparent: true, opacity: .7, roughness: .05, depthWrite: false }),
     );
     mesh.position.set(0, -.02, .09);
     mesh.visible = false;
@@ -194,19 +207,19 @@ export class Bathroom {
   }
   private duck(x: number, z: number, phase: number) {
     const group = new THREE.Group();
-    const yellow = glossy('#ffe14a', .38);
-    const body = new THREE.Mesh(new THREE.SphereGeometry(.046, 16, 12), yellow);
-    body.scale.set(1.2, .82, 1.28);
-    const head = new THREE.Mesh(new THREE.SphereGeometry(.028, 14, 10), yellow);
-    head.position.set(0, .032, .028);
-    const beak = new THREE.Mesh(new THREE.ConeGeometry(.012, .03, 8), glossy('#ff8a3d', .4));
-    beak.rotation.x = Math.PI / 2; beak.position.set(0, .03, .055);
+    const yellow = glossy('#ffcc00', .4);
+    const body = new THREE.Mesh(new THREE.SphereGeometry(.024, 16, 12), yellow);
+    body.scale.set(1.15, .8, 1.2);
+    const head = new THREE.Mesh(new THREE.SphereGeometry(.014, 14, 10), yellow);
+    head.position.set(0, .016, .014);
+    const beak = new THREE.Mesh(new THREE.ConeGeometry(.006, .016, 8), glossy('#ff7a1a', .4));
+    beak.rotation.x = Math.PI / 2; beak.position.set(0, .015, .028);
     const eyeMat = new THREE.MeshStandardMaterial({ color: '#243042', roughness: .3 });
-    const eyeL = new THREE.Mesh(new THREE.SphereGeometry(.006, 8, 6), eyeMat);
+    const eyeL = new THREE.Mesh(new THREE.SphereGeometry(.003, 8, 6), eyeMat);
     const eyeR = eyeL.clone();
-    eyeL.position.set(-.012, .04, .046); eyeR.position.set(.012, .04, .046);
+    eyeL.position.set(-.006, .02, .024); eyeR.position.set(.006, .02, .024);
     group.add(body, head, beak, eyeL, eyeR);
-    const duck: BathDuck = { group, homeX: x, homeZ: z, x, z, vx: 0, vz: 0, phase };
+    const duck: BathDuck = { group, homeX: x, homeZ: z, x, z, vx: 0, vz: 0, phase, held: false };
     this.placeDuck(duck);
     this.group.add(group);
     return duck;
@@ -216,7 +229,7 @@ export class Bathroom {
     duck.group.rotation.z = Math.sin(duck.phase) * .08;
   }
   private bubble(index: number) {
-    const radius = .028 + (index % 3) * .008;
+    const radius = .02 + (index % 3) * .005;
     const mesh = new THREE.Mesh(
       new THREE.SphereGeometry(radius, 14, 10),
       new THREE.MeshStandardMaterial({
@@ -233,33 +246,33 @@ export class Bathroom {
   }
   private makeSponge() {
     const group = new THREE.Group();
-    const mesh = new THREE.Mesh(new THREE.BoxGeometry(.09, .035, .055), glossy('#ffb7c8', .72));
-    const stripe = new THREE.Mesh(new THREE.BoxGeometry(.09, .012, .055), glossy('#fff0b0', .6));
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(.07, .028, .045), glossy('#ff6b9d', .62));
+    const stripe = new THREE.Mesh(new THREE.BoxGeometry(.07, .01, .045), glossy('#ffe14a', .5));
     stripe.position.y = .008;
     group.add(mesh, stripe);
-    const homeX = .2, homeZ = -.04;
+    const homeX = SPONGE_HOME.x, homeZ = SPONGE_HOME.z;
     group.position.set(homeX, TUB.restLevel + .045, homeZ);
     this.group.add(group);
     return { group, homeX, homeZ };
   }
   private makeCup() {
     const cup = new THREE.Group();
-    const mat = glossy('#c8f0d8', .3);
+    const mat = glossy('#3dbe8c', .32);
     const wall = new THREE.Mesh(new THREE.CylinderGeometry(.03, .026, .05, 14, 1, true), mat);
     const bottom = new THREE.Mesh(new THREE.CircleGeometry(.025, 12), mat);
     bottom.rotation.x = -Math.PI / 2; bottom.position.y = -.024;
     cup.add(wall, bottom);
-    cup.position.set(-.2, .25, -.02);
+    cup.position.set(CUP_HOME.x, TUB.restLevel + .05, CUP_HOME.z);
     return cup;
   }
   private makeWand() {
     const wand = new THREE.Group();
     const stick = new THREE.Mesh(new THREE.CylinderGeometry(.006, .006, .12, 8), glossy('#ffffff', .3));
     stick.rotation.z = .4;
-    const ring = new THREE.Mesh(new THREE.TorusGeometry(.022, .004, 8, 16), glossy('#9ad0ff', .25));
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(.018, .004, 8, 16), glossy('#3d8cff', .25));
     ring.position.set(.04, .05, 0);
     wand.add(stick, ring);
-    wand.position.set(.22, .24, .08);
+    wand.position.set(.12, .2, -.15);
     return wand;
   }
 }
@@ -269,12 +282,12 @@ function tileTexture() {
   canvas.width = canvas.height = 256;
   const g = canvas.getContext('2d');
   if (!g) return null;
-  const colors = ['#f7d7e8', '#d8f3ea', '#fff0cc', '#d5ecff'];
+  const colors = ['#ff8fb8', '#7ad7ff', '#ffe14a', '#7ddec0'];
+  g.fillStyle = '#fff7ef';
+  g.fillRect(0, 0, 256, 256);
   for (let y = 0; y < 4; y++) for (let x = 0; x < 4; x++) {
-    g.fillStyle = colors[(x + y * 2) % colors.length];
-    g.fillRect(x * 64, y * 64, 64, 64);
-    g.fillStyle = '#ffffffaa';
-    g.fillRect(x * 64 + 3, y * 64 + 3, 58, 58);
+    g.fillStyle = colors[(x + y) % colors.length];
+    g.fillRect(x * 64 + 4, y * 64 + 4, 56, 56);
   }
   const texture = new THREE.CanvasTexture(canvas);
   texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
