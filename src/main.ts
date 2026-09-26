@@ -14,30 +14,36 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML=`
     </button>
     ${flavorPickerMarkup()}
   </nav>
-  <section id="loading" role="status" aria-live="polite"><div class="loading-card"><div class="jelly-mark" aria-hidden="true"></div><h2 id="load-title" class="sr-only">Jelly Soup: Bath Time</h2><p id="load-message" class="sr-only">Filling the tub</p><pre id="fatal" hidden></pre><button id="retry" hidden type="button">Try again</button></div></section>
+  <section id="loading" role="status" aria-live="polite"><div class="loading-card"><div class="jelly-mark" aria-hidden="true"></div><h2 id="load-title" class="sr-only">Jelly Soup: Bath Time</h2><p id="load-message" class="sr-only">Filling the tub</p><details id="error-details" hidden><summary>Details</summary><pre id="fatal"></pre></details><button id="retry" hidden type="button">Try again</button></div></section>
   <div id="play-error" class="play-error" hidden role="alert"><p id="play-error-message"></p><button id="play-retry" type="button">Try again</button></div>
 `;
 
 let stage='Loading the game',failed=false,playing=false,game:{stop:()=>void}|undefined;
 function fail(reason:unknown) {
-  const hasGpu=typeof navigator.gpu!=='undefined'&&navigator.gpu!=null;
-  const {error,summary,detail}=failureCopy(reason,hasGpu);
-  console.error(`[Jelly Soup / ${stage}]`,error);
   if(playing) {
     const toast=document.querySelector<HTMLElement>('#play-error')!;
     if(!toast.hidden)return;
+    const hasGpu=typeof navigator.gpu!=='undefined'&&navigator.gpu!=null;
+    const {error,summary}=failureCopy(reason,hasGpu);
+    console.error(`[Jelly Soup / ${stage}]`,error);
     toast.hidden=false;
     document.querySelector('#play-error-message')!.textContent=summary;
     return;
   }
-  if(failed)return;failed=true;game?.stop();
+  if(failed)return;
+  failed=true;
+  const hasGpu=typeof navigator.gpu!=='undefined'&&navigator.gpu!=null;
+  const {error,summary,detail}=failureCopy(reason,hasGpu);
+  console.error(`[Jelly Soup / ${stage}]`,error);
+  game?.stop();
   const loading=document.querySelector('#loading')!;
   loading.classList.remove('hidden');loading.classList.add('failed');
   document.querySelector('#load-title')!.classList.remove('sr-only');
   const message=document.querySelector('#load-message')!;
   message.classList.remove('sr-only');message.textContent=summary;
-  const fatal=document.querySelector<HTMLPreElement>('#fatal')!;
-  fatal.hidden=false;fatal.textContent=detail;
+  const details=document.querySelector<HTMLDetailsElement>('#error-details')!;
+  details.hidden=false;details.open=false;
+  document.querySelector('#fatal')!.textContent=detail;
   document.querySelector<HTMLButtonElement>('#retry')!.hidden=false;
 }
 window.addEventListener('error',event=>fail(event.error||event.message));

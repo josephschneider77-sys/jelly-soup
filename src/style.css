@@ -30,7 +30,10 @@ h1 span{color:#7ec8f0}
 .jelly-mark{width:88px;height:104px;border-radius:48% 48% 35% 35%;background:radial-gradient(ellipse at 30% 20%,#fff6c8 0,#9ad7ff 46%,#7ec8f0 100%);box-shadow:inset -8px -10px 16px #3d6a8a20,0 12px 20px #6aa4c822;margin:0 auto;animation:breathe 1.6s ease-in-out infinite;transform-origin:center bottom}
 h2{font:italic 39px Georgia,serif;letter-spacing:-1.6px;font-weight:400;margin:0 0 14px}
 #load-message{font-size:16px;color:#6d8292;letter-spacing:.03em}
-#fatal{font:10px/1.6 ui-monospace,monospace;white-space:pre-wrap;overflow-wrap:anywhere;max-height:35vh;overflow:auto;text-align:left;background:#fff5;border-radius:10px;padding:17px;margin:24px 0;color:#715445}
+#error-details{margin:16px auto 0;max-width:100%;text-align:left}
+#error-details[hidden]{display:none}
+#error-details summary{min-height:64px;display:grid;place-items:center;border:3px solid #b7e4ff;border-radius:30px;background:#fff;font-size:16px}
+#fatal{font:10px/1.6 ui-monospace,monospace;white-space:pre-wrap;overflow-wrap:anywhere;max-height:35vh;overflow:auto;text-align:left;background:#fff5;border-radius:10px;padding:17px;margin:12px 0 0;color:#715445}
 #retry,#play-retry{min-width:64px;min-height:64px;margin:24px auto 0;padding:0 22px;border:0;border-radius:30px;background:#3d8ec4;color:#f8f7ec;font-size:16px}
 #retry[hidden]{display:none}
 .play-error{position:fixed;left:50%;bottom:max(24px,env(safe-area-inset-bottom));transform:translateX(-50%);z-index:11;display:flex;align-items:center;gap:12px;max-width:min(440px,calc(100vw - 24px));padding:12px 14px;border:3px solid #b7e4ff;border-radius:22px;background:#fffef8f2;box-shadow:0 9px 24px #4e6a9215;pointer-events:auto}

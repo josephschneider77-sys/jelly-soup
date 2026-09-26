@@ -17,7 +17,15 @@ assert.match(css,/#loading\.hidden,#loading\.hidden \*\{pointer-events:none\}/,'
 assert.match(css,/#retry,#play-retry\{/);
 assert.equal((css.match(/#retry\{/g)??[]).length,0,'retry is styled once');
 assert.match(markup,/id="play-error"/,'later errors use a toast instead of the full-screen card');
-assert.match(markup,/fatal\.hidden=false/,'startup errors show the detail text');
+assert.match(markup,/id="error-details"/,'startup errors tuck the stack behind a details toggle');
+assert.match(markup,/<summary>Details<\/summary>/);
+assert.doesNotMatch(markup,/fatal\.hidden=false/);
+const failBody=markup.slice(markup.indexOf('function fail'),markup.indexOf('window.addEventListener'));
+const firstLog=failBody.indexOf('console.error');
+assert(failBody.indexOf('if(!toast.hidden)return')<firstLog,'a repeated playing error is not logged every frame');
+assert(failBody.indexOf('if(failed)return')<failBody.indexOf('console.error',firstLog+1),'a repeated startup error is not logged every frame');
+assert.match(runtime,/__jellyQC/);
+assert.match(runtime,/get\('qc'\) === '1'/);
 assert.match(startup,/This game needs a browser with WebGPU/);
 assert.match(html,/Jelly Soup: Bath Time/);
 assert.match(runtime,/bath\.faucet/);
@@ -131,6 +139,7 @@ function releaseGrab() {
   canvas.dispatchEvent(down);
   assert.equal(down.stopped(),0,'a jelly press does not cancel pointerdown');
   assert.equal(body.grabs.length,1,'tapping the jelly grabs it');
+  assert.equal(input.hold(),'jelly');
   windowTarget.dispatchEvent(pointer('pointerup',pixel.x,pixel.y));
   releaseGrab();
   assert.equal(hits.jelly,1,'releasing a short jelly tap squishes');
@@ -164,11 +173,39 @@ function releaseGrab() {
   const down=pointer('pointerdown',pixel.x,pixel.y);
   canvas.dispatchEvent(down);
   assert.equal(input.controls.enabled,false,'dragging the sponge lets go of the camera');
+  assert.equal(input.hold(),'sponge');
   assert.equal(down.stopped(),0,'sponge pointerdown is not cancelled');
   canvas.dispatchEvent(pointer('pointermove',pixel.x+80,pixel.y+10));
   windowTarget.dispatchEvent(pointer('pointerup',pixel.x+80,pixel.y+10));
   assert(spongeMoves>0,'dragging the sponge moves it');
   assert.equal(hits.faucet,1,'a sponge drag does not tap the faucet');
+}
+{
+  input.clear();
+  input.onTapGround=()=>{hits.ground++;};
+  const down=pointer('pointerdown',40,height-30);
+  canvas.dispatchEvent(down);
+  windowTarget.dispatchEvent(pointer('pointerup',60,height-30));
+  assert.equal(hits.ground,1,'a 20 CSS-pixel wobble still taps');
+  hits.ground=0;
+  canvas.dispatchEvent(pointer('pointerdown',40,height-30));
+  windowTarget.dispatchEvent(pointer('pointerup',72,height-30));
+  assert.equal(hits.ground,0,'a 32 CSS-pixel drag is not a tap');
+  const clock={t:1000};
+  const original=performance.now.bind(performance);
+  performance.now=()=>clock.t;
+  hits.ground=0;
+  canvas.dispatchEvent(pointer('pointerdown',40,height-30));
+  clock.t=1550;
+  windowTarget.dispatchEvent(pointer('pointerup',40,height-30));
+  assert.equal(hits.ground,1,'a 550ms press still taps');
+  hits.ground=0;
+  clock.t=3000;
+  canvas.dispatchEvent(pointer('pointerdown',40,height-30));
+  clock.t=3650;
+  windowTarget.dispatchEvent(pointer('pointerup',40,height-30));
+  assert.equal(hits.ground,0,'a press held past 600ms is not a tap');
+  performance.now=original;
 }
 
 console.log('Bath taps: faucet, duck, bubble, and jelly.');

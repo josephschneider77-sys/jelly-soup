@@ -34,9 +34,9 @@ export type ToyTap={
 type PendingTap={id:number;x:number;y:number;t:number};
 type PointerPick={kind:'jelly'|'toy'|'floor';toy:ToyTap|null;hit:{t:number;distance:number}|null};
 
-/** A tap is a short, nearly still press. Anything longer is a camera drag. */
-const TAP_PX=12;
-const TAP_MS=400;
+/** A tap is a short press. clientX/clientY are CSS pixels, so this slop is already in CSS px. */
+const TAP_PX=24;
+const TAP_MS=600;
 /** Fallback when a toy has no mesh. Large spheres covered the whole view. */
 const TOY_PROXY_RADIUS=.05;
 
@@ -426,6 +426,12 @@ export class Input {
     this.scratchOffset.setFromSpherical(this.scratchSpherical);
     this.camera.position.copy(this.controls.target).add(this.scratchOffset);
     this.controls.update();
+  }
+  /** Jelly grip or sponge drag, for the qc=1 probe. */
+  hold():'jelly'|'sponge'|null {
+    if([...this.grabs.values()].some(state=>!state.releasePending))return 'jelly';
+    if(this.toyDrag)return 'sponge';
+    return null;
   }
   recenter() {this.clear();this.rig.reset();}
   teleport() {

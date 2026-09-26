@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { applyBathForces, containInTub, placeInTub, TUB } from '../src/app/bath/forces.ts';
+import { Locomotion } from '../src/app/locomotion.ts';
 import { Baby } from '../src/graphics/character/baby.ts';
 import { PHYS } from '../src/physics/constants.js';
 import { SoftBody } from '../src/physics/soft-body.js';
@@ -47,4 +48,30 @@ for(let i=0;i<240;i++){
 }
 pushed.updateCenter();
 assert(pushed.center.z>z0+.01,`faucet stream pushes the jelly (${z0} -> ${pushed.center.z})`);
+
+{
+  const air=new SoftBody(loadModel());
+  const rig=new Locomotion(air);
+  let jumps=0;
+  rig.onJump=()=>{jumps++;};
+  air.grounded=false;
+  rig.jump();
+  for(let i=0;i<20;i++){air.grounded=false;rig.step(PHYS.step);}
+  assert.equal(jumps,0,'an air tap waits for the floor');
+  air.grounded=true;
+  rig.step(PHYS.step);
+  assert.equal(jumps,1,'an air tap jumps when the jelly lands');
+}
+{
+  const late=new SoftBody(loadModel());
+  const rig=new Locomotion(late);
+  let jumps=0;
+  rig.onJump=()=>{jumps++;};
+  late.grounded=false;
+  rig.jump();
+  for(let i=0;i<60;i++){late.grounded=false;rig.step(PHYS.step);}
+  late.grounded=true;
+  rig.step(PHYS.step);
+  assert.equal(jumps,0,'a jump buffered past 0.2s is dropped');
+}
 console.log('Bath float and faucet push.');

@@ -70,7 +70,13 @@ export async function startGame(stage: (s: string) => void, fail: (e: unknown) =
     splashWait = .28;
     sound.splash();
   };
-  input.onTapJelly = () => { rig.squish(); giggle(); splash(.35); };
+  let interaction: string | null = null;
+  let squishCount = 0;
+  let squishAt = 0;
+  const note = (name: string) => { interaction = name; };
+  const noteSquish = () => { squishCount++; squishAt = performance.now(); };
+  input.onTapJelly = () => { note('jelly'); noteSquish(); rig.squish(); giggle(); splash(.35); };
+  // Space splashes the water. Bath Time has no rideable toy to climb off.
   input.onTapGround = () => { ripple = Math.min(1, ripple + .25); };
   const syncCenters = () => {
     bath.faucet.getWorldPosition(faucetCenter);
@@ -82,14 +88,16 @@ export async function startGame(stage: (s: string) => void, fail: (e: unknown) =
   };
   syncCenters();
   input.toyTaps.push({
-    center: faucetCenter, radius: .05, object: bath.faucet, use: () => {
+    center: faucetCenter, radius: .05, object: bath.faucet,     use: () => {
+      note('faucet');
       faucet.on = !faucet.on;
       bath.setFaucet(faucet.on);
       splash(.2);
     },
   });
   bath.ducks.forEach((duck, i) => input.toyTaps.push({
-    center: duckCenters[i], radius: .05, object: duck.group, use: () => {
+    center: duckCenters[i], radius: .05, object: duck.group,     use: () => {
+      note('duck');
       sound.squeak();
       duck.vx += (Math.random() - .5) * .35;
       duck.vz += (Math.random() - .5) * .35;
@@ -101,8 +109,9 @@ export async function startGame(stage: (s: string) => void, fail: (e: unknown) =
   }));
   input.toyTaps.push({
     center: spongeCenter, radius: .05, object: bath.sponge.group,
-    use: () => squeeze(),
+    use: () => { note('sponge'); squeeze(); },
     drag: (phase, point) => {
+      note('sponge');
       if (phase === 'start') spongeOffset.copy(bath.sponge.group.position).sub(point);
       const x = THREE.MathUtils.clamp(point.x + spongeOffset.x, -TUB.halfX + .04, TUB.halfX - .04);
       const z = THREE.MathUtils.clamp(point.z + spongeOffset.z, -TUB.halfZ + .04, TUB.halfZ - .04);
@@ -112,7 +121,8 @@ export async function startGame(stage: (s: string) => void, fail: (e: unknown) =
     },
   });
   input.toyTaps.push({
-    center: cupCenter, radius: .05, object: bath.cup, use: () => {
+    center: cupCenter, radius: .05, object: bath.cup,     use: () => {
+      note('cup');
       pourOn(body, body.center.x, body.center.z);
       splash(.7);
       giggle();
@@ -121,6 +131,7 @@ export async function startGame(stage: (s: string) => void, fail: (e: unknown) =
 
   function popBubble(bubble: BathBubble) {
     if (!bubble.alive) return;
+    note('bubble');
     bath.pop(bubble);
     sound.pop();
     giggle();
@@ -130,6 +141,7 @@ export async function startGame(stage: (s: string) => void, fail: (e: unknown) =
     if (squeezeWait > 0) return;
     if (bath.sponge.group.position.distanceTo(body.center) > .09) return;
     squeezeWait = .32;
+    noteSquish();
     rig.squish();
     giggle();
   }
@@ -169,6 +181,7 @@ export async function startGame(stage: (s: string) => void, fail: (e: unknown) =
 
   const reset = () => {
     input.clear();
+    interaction = null;
     faucet.on = false;
     bath.setFaucet(false);
     refill = 'drain';
@@ -232,6 +245,23 @@ export async function startGame(stage: (s: string) => void, fail: (e: unknown) =
   };
   renderer.setAnimationLoop(frame);
   stage('Bath time');
+  if (new URLSearchParams(location.search).get('qc') === '1') {
+    const spherical = new THREE.Spherical();
+    const offset = new THREE.Vector3();
+    Object.assign(window, {
+      __jellyQC: {
+        get jelly() { return { x: body.center.x, y: body.center.y, z: body.center.z }; },
+        get squish() { return { count: squishCount, active: squishAt > 0 && performance.now() - squishAt < 400 }; },
+        get interaction() { return input.hold() ?? interaction; },
+        get faucet() { return faucet.on; },
+        get camera() {
+          offset.copy(camera.position).sub(input.controls.target);
+          spherical.setFromVector3(offset);
+          return { theta: spherical.theta, phi: spherical.phi, radius: spherical.radius };
+        },
+      },
+    });
+  }
   return {
     stop: () => {
       disposed = true;
