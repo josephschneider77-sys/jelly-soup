@@ -31,6 +31,7 @@ export class SwingFacility implements Facility {
     ));
   }
   get active() {return this.physics.riding;}
+  get group() {return this.visual.group;}
   get laughing() {return this.active&&this.laughStarted;}
   get interactionDistance() {
     return this.physics.nearby?Math.hypot(this.physics.body.center.x-SWING.x,this.physics.body.center.z-SWING.z):Infinity;

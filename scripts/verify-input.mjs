@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { Mesh, PerspectiveCamera, Raycaster, Vector2, Vector3 } from 'three/webgpu';
+import { BoxGeometry, Mesh, PerspectiveCamera, Raycaster, Vector2, Vector3 } from 'three/webgpu';
 import { FlavorPicker } from '../src/app/flavor-picker.ts';
 import { Input } from '../src/app/input.ts';
 import { JellySound } from '../src/app/sound.ts';
@@ -17,7 +17,16 @@ const width=1280,height=800,TOY_SLOP=96;
 const css=readFileSync(new globalThis.URL('../src/style.css',import.meta.url),'utf8');
 const markup=readFileSync(new globalThis.URL('../src/main.ts',import.meta.url),'utf8');
 const runtime=readFileSync(new globalThis.URL('../src/app/runtime.ts',import.meta.url),'utf8');
+const startup=readFileSync(new globalThis.URL('../src/app/startup-error.ts',import.meta.url),'utf8');
 assert.match(css,/#loading\.hidden,#loading\.hidden \*\{pointer-events:none\}/,'hidden loading card cannot keep receiving taps');
+assert.match(css,/#retry,#play-retry\{/);
+assert.equal((css.match(/#retry\{/g)??[]).length,0,'retry is styled once');
+assert.match(markup,/id="play-error"/,'later errors use a toast instead of the full-screen card');
+assert.match(markup,/fatal\.hidden=false/,'startup errors show the detail text');
+assert.match(startup,/This game needs a browser with WebGPU/);
+assert.match(runtime,/object:swing\.group/);
+assert.match(runtime,/owner\?\.id===facility\.id/);
+assert.match(runtime,/dismount\(active\)/);
 assert(markup.indexOf('class="actions"')>markup.indexOf('id="viewport"'),'sound, reset, and flavor sit above the canvas');
 assert.doesNotMatch(css,/\.actions\{[^}]*pointer-events:\s*none/);
 assert.match(css,/\.icon-button\{[^}]*min-width:64px[^}]*min-height:64px/);
@@ -63,16 +72,33 @@ camera.fov=2*Math.atan(Math.tan(18*Math.PI/180)*Math.max(1,.85/camera.aspect))*1
 camera.setViewOffset(width,height,0,height*(width<700?.075:.025),width,height);
 camera.updateProjectionMatrix();
 const rig=new Locomotion(body);
-const summons=[];
+const summons=[],dismounts=[],riding=new Set();
 const input=new Input(camera,canvas,body,new Mesh(body.surface.geometry),rig,{unlock:async()=>{}});
 let groundTaps=0,jellyTaps=0;
-input.onTapGround=()=>{groundTaps++;};
+input.bodyControlled=()=>riding.size>0;
+input.onTapGround=()=>{
+  if(riding.size){dismounts.push('floor');riding.clear();return;}
+  groundTaps++;
+};
 input.onTapJelly=()=>{jellyTaps++;};
+function toyMesh(center) {
+  const mesh=new Mesh(new BoxGeometry(.04,.04,.04));
+  mesh.position.copy(center);mesh.updateMatrixWorld(true);return mesh;
+}
+const toyMeshes=new Map();
 for(const [name,center] of [
   ['swing',new Vector3(SWING.x,.09,SWING.z)],
   ['trampoline',new Vector3(TRAMPOLINE.x,.05,TRAMPOLINE.z)],
   ['bed',new Vector3(BED.x,.05,BED.z)],
-]) input.toyTaps.push({center,radius:.2,use:()=>summons.push(name)});
+]) {
+  const object=toyMesh(center);
+  toyMeshes.set(name,object);
+  input.toyTaps.push({center,radius:.14,object,use:()=>{
+    if(riding.has(name)){riding.delete(name);dismounts.push(name);return;}
+    if(riding.size)return;
+    riding.add(name);summons.push(name);
+  }});
+}
 
 function pointer(type,x,y,extra={}) {
   const event=new globalThis.Event(type,{bubbles:true,cancelable:true});
@@ -93,10 +119,11 @@ function frontPixel() {
 function releaseGrab() {
   for(let i=0;i<8;i++){input.step(PHYS.step);body.step(PHYS.step);input.afterPhysicsStep();}
 }
-function resetCounts(){groundTaps=0;jellyTaps=0;summons.length=0;}
+function resetCounts(){groundTaps=0;jellyTaps=0;summons.length=0;dismounts.length=0;riding.clear();}
 const homePos=camera.position.clone(),homeTarget=input.controls.target.clone();
 function resetView() {
-  camera.position.copy(homePos);input.controls.target.copy(homeTarget);input.controls.update();
+  camera.position.copy(homePos);input.controls.target.copy(homeTarget);
+  camera.lookAt(homeTarget);camera.updateMatrixWorld(true);input.controls.update();camera.updateMatrixWorld(true);
 }
 function releasePointer(x,y,extra={}) {
   windowTarget.dispatchEvent(pointer('pointerup',x,y,extra));
@@ -169,14 +196,15 @@ function releasePointer(x,y,extra={}) {
     if(!Number.isFinite(along))continue;
     covered++;
     const meshHit=bvh.hit([ray.origin.x,ray.origin.y,ray.origin.z],[ray.direction.x,ray.direction.y,ray.direction.z]);
-    if((!meshHit||meshHit.distance>=along-.01)&&!onToyScreen(x,y)&&!swallowed)swallowed={x,y};
+    const hitsToy=[...toyMeshes.values()].some(mesh=>{mesh.updateWorldMatrix(true,true);return raycaster.intersectObject(mesh,true).length>0;});
+    if((!meshHit||meshHit.distance>=along-.01)&&!onToyScreen(x,y)&&!hitsToy&&!swallowed)swallowed={x,y};
   }
   assert(covered/samples>.5,'world-space toy spheres cover most of the starting view');
   assert(swallowed,'the old picker would swallow a tap that is not on the jelly');
   canvas.dispatchEvent(pointer('pointerdown',swallowed.x,swallowed.y));
-  releasePointer(swallowed.x+4,swallowed.y+4);
+  releasePointer(swallowed.x,swallowed.y);
   await flush();
-  assert.equal(summons.length,0,'a tap inside an old toy sphere no longer summons when the toy is off the cursor');
+  assert.equal(summons.length,0,`a tap inside an old toy sphere no longer summons when the toy is off the cursor (${swallowed.x},${swallowed.y} -> ${summons.join(',')})`);
   if(body.grabs.length)releaseGrab();
   assert(groundTaps+jellyTaps===1,'that tap still hops or squishes');
   input.clear();
@@ -184,7 +212,11 @@ function releasePointer(x,y,extra={}) {
 
 {
   resetCounts();resetView();
-  canvas.dispatchEvent(pointer('pointerdown',40,height-30));
+  let stopped=0;
+  const down=pointer('pointerdown',40,height-30);
+  down.stopImmediatePropagation=()=>{stopped++;};
+  canvas.dispatchEvent(down);
+  assert.equal(stopped,0,'a floor press is not cancelled, so a drag can orbit');
   releasePointer(48,height-24);
   await flush();
   assert.equal(groundTaps,1,'a short tap on the table hops');
@@ -217,9 +249,33 @@ function releasePointer(x,y,extra={}) {
   canvas.dispatchEvent(pointer('pointerdown',sx,sy));
   releasePointer(sx,sy);
   await flush();
-  assert.deepEqual(summons,['swing'],'tapping the swing summons it');
+  assert.deepEqual(summons,['swing'],'tapping the swing mesh summons it');
   assert.equal(jellyTaps,0);
   assert.equal(groundTaps,0);
+  input.clear();
+}
+
+{
+  resetCounts();resetView();
+  const swing=new Vector3(SWING.x,.09,SWING.z).project(camera);
+  const sx=Math.min(width-1,Math.max(0,(swing.x+1)*.5*width));
+  const sy=Math.min(height-1,Math.max(0,(1-swing.y)*.5*height));
+  const tap=(x,y)=>{canvas.dispatchEvent(pointer('pointerdown',x,y));releasePointer(x,y);};
+  tap(sx,sy);
+  await flush();
+  assert.equal(riding.has('swing'),true,'the swing tap mounted');
+  const pixel=frontPixel();
+  tap(pixel.x,pixel.y);
+  await flush();
+  assert.equal(jellyTaps,1,'tapping the jelly while it is on a toy still squishes');
+  assert.equal(body.grabs.length,0,'riding does not start a stretch grab');
+  assert.deepEqual(summons,['swing']);
+  tap(40,height-30);
+  await flush();
+  assert.deepEqual(dismounts,['floor'],'tapping the floor gets off the toy');
+  tap(sx,sy);await flush();
+  tap(sx,sy);await flush();
+  assert.deepEqual(dismounts,['floor','swing'],'tapping the same toy again gets off');
   input.clear();
 }
 
