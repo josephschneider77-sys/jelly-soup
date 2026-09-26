@@ -1,8 +1,19 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { applyBathForces, containInTub, placeInTub, TUB } from '../src/app/bath/forces.ts';
+import { Baby } from '../src/graphics/character/baby.ts';
 import { PHYS } from '../src/physics/constants.js';
 import { SoftBody } from '../src/physics/soft-body.js';
 import { loadModel } from './load-model.mjs';
+
+const runtime=readFileSync(new globalThis.URL('../src/app/runtime.ts',import.meta.url),'utf8');
+assert(runtime.indexOf('new Baby(body)')<runtime.indexOf('placeInTub(body)'),'the face binds before the jelly is moved into the tub');
+{
+  const posed=new SoftBody(loadModel());
+  const baby=new Baby(posed);
+  placeInTub(posed);
+  baby.update(1/60);
+}
 
 const body=new SoftBody(loadModel());
 placeInTub(body,.09);

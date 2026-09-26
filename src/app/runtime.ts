@@ -25,8 +25,9 @@ export async function startGame(stage: (s: string) => void, fail: (e: unknown) =
   camera.position.set(.16, .46, .52);
   stage('Filling the tub');
   const body = new SoftBody(await loadBabyCage());
-  placeInTub(body);
+  // The face is bound in the jelly's rest pose. Move it into the tub after that.
   const baby = new Baby(body);
+  placeInTub(body);
   const bath = new Bathroom();
   scene.add(bath.group, baby.group);
   const pmrem = new THREE.PMREMGenerator(renderer);
