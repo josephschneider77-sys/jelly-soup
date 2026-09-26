@@ -124,7 +124,7 @@ export async function startGame(stage: (s: string) => void, fail: (e: unknown) =
     });
   });
   bath.bubbles.forEach((bubble, i) => input.toyTaps.push({
-    center: bubbleCenters[i], radius: .06, object: bubble.mesh, label: 'bubble', yieldsToJelly: true,
+    center: bubbleCenters[i], radius: .06, object: bubble.mesh, label: 'bubble', yieldsToToys: true,
     use: () => popBubble(bubble),
   }));
   input.toyTaps.push({

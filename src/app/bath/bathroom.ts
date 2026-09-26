@@ -1,5 +1,5 @@
 import * as THREE from 'three/webgpu';
-import { positionLocal, sin, time, uniform, vec3 } from 'three/tsl';
+import { abs, color as tslColor, float, mix, normalView, positionLocal, positionViewDirection, pow, sin, sub, time, uniform, vec3 } from 'three/tsl';
 import { CUP_HOME, DUCK_HOME, FAUCET_HOME, SPONGE_HOME } from './layout.ts';
 import { TUB } from './forces.ts';
 
@@ -116,9 +116,11 @@ export class Bathroom {
       bubble.y += bubble.speed * dt;
       bubble.x += Math.sin(timeSeconds * .7 + bubble.phase) * .006 * dt;
       bubble.z += Math.cos(timeSeconds * .5 + bubble.phase) * .004 * dt;
+      this.clearOfSponge(bubble);
       const bubbleLimit = Math.min(.12, Math.max(.05, this.roamX - bubble.radius));
       bubble.x = THREE.MathUtils.clamp(bubble.x, -bubbleLimit, bubbleLimit);
       bubble.z = THREE.MathUtils.clamp(bubble.z, -.12, .05);
+      this.clearOfSponge(bubble);
       if (Math.abs(bubble.x) < .06 && bubble.z > -.03) bubble.z = -.08;
       bubble.mesh.position.set(bubble.x, bubble.y, bubble.z);
       // Stay on the water, inside the tub, where a tap can reach.
@@ -165,8 +167,8 @@ export class Bathroom {
     bubble.wait = 0;
     // Slots sit beside and behind the jelly, never on the camera's line to its face.
     const slots: ReadonlyArray<readonly [number, number]> = [
-      [-.1, .02], [.1, -.01], [-.08, -.1], [.08, -.09],
-      [-.05, .04], [.06, .035], [0, -.11], [.04, -.07],
+      [-.1, .02], [-.11, -.04], [-.08, -.1], [.04, -.1],
+      [-.05, .05], [-.02, -.11], [0, -.11], [.02, -.08],
     ];
     const slot = slots[Math.floor(seed * slots.length) % slots.length];
     let x = slot[0] + (seed - .5) * .03;
@@ -175,6 +177,7 @@ export class Bathroom {
     if (Math.abs(x) < .07 && z > -.05) z = -.14;
     bubble.x = x;
     bubble.z = z;
+    this.clearOfSponge(bubble);
     bubble.y = this.level + .03 + (seed % .2);
     bubble.mesh.visible = true;
     bubble.mesh.position.set(bubble.x, bubble.y, bubble.z);
@@ -293,14 +296,26 @@ export class Bathroom {
     duck.group.position.set(duck.x, this.level + .02, duck.z);
     duck.group.rotation.z = Math.sin(duck.phase) * .08;
   }
+  /** Keep bubbles off the sponge, which sits on the right of the jelly. */
+  private clearOfSponge(bubble: BathBubble) {
+    const dx = bubble.x - SPONGE_HOME.x, dz = bubble.z - SPONGE_HOME.z;
+    if (dx * dx + dz * dz >= .08 * .08) return;
+    bubble.z = Math.min(bubble.z, SPONGE_HOME.z - .09);
+    if (bubble.x > SPONGE_HOME.x - .05) bubble.x = SPONGE_HOME.x - .1;
+  }
   private bubble(index: number) {
     const radius = .034 + (index % 3) * .008;
-    const mesh = new THREE.Mesh(
-      new THREE.SphereGeometry(radius, 14, 10),
-      new THREE.MeshBasicMaterial({
-        color: '#8fd4f2', transparent: true, opacity: .2, depthWrite: false,
-      }),
-    );
+    const material = new THREE.MeshBasicNodeMaterial({
+      transparent: true, depthWrite: false, side: THREE.FrontSide,
+    });
+    // A white rim and a nearly clear middle, so the bubble reads on the water
+    // without painting the duck behind it.
+    const facing = abs(normalView.dot(positionViewDirection));
+    const rim = pow(sub(float(1), facing), float(1.5));
+    material.opacityNode = mix(float(.05), float(.45), rim);
+    material.colorNode = mix(tslColor('#bfefff'), tslColor('#ffffff'), rim);
+    const mesh = new THREE.Mesh(new THREE.SphereGeometry(radius, 20, 16), material);
+    mesh.renderOrder = 4;
     const bubble: BathBubble = {
       mesh, alive: true, x: 0, y: 0, z: 0, radius, speed: .008 + (index % 4) * .003, wait: 0, phase: index * .7,
     };

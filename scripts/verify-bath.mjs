@@ -135,7 +135,9 @@ assert(pushed.center.z<z0+.005,`faucet stream does not drive the jelly into the 
   assert.match(input,/controls\.target\.copy\(this\.anchor\)/);
   assert.match(runtime,/containInTub\(body, roamX\)/);
   assert.match(input,/padded:false/);
-  assert.match(bath,/opacity: \.2/);
+  assert.match(runtime,/yieldsToToys: true/);
+  assert.match(bath,/opacityNode/);
+  assert.match(bath,/float\(\.45\)/);
 }
 {
   for(const [w,h] of [[390,844],[1024,768],[1280,800]]){

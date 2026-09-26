@@ -32,6 +32,8 @@ export type ToyTap={
   label?:string;
   /** A real hit on this toy loses to the jelly, and only to the jelly. */
   yieldsToJelly?:boolean;
+  /** Bubbles. Picked only when the ray missed every other toy and the jelly. */
+  yieldsToToys?:boolean;
   /** Drag on a plane through center.y. Pointer-down still reaches OrbitControls. */
   drag?:(phase:'start'|'move'|'end',point:THREE.Vector3)=>void;
 };
@@ -245,10 +247,16 @@ export class Input {
     const jellyDistance=jelly?.distance??Infinity;
     let solid:ToyTap|null=null,solidDistance=Infinity,soft:ToyTap|null=null,softDistance=Infinity;
     let padSolid:ToyTap|null=null,padSolidDistance=Infinity,padSoft:ToyTap|null=null,padSoftDistance=Infinity;
+    let bubble:ToyTap|null=null,bubbleDistance=Infinity,padBubble:ToyTap|null=null,padBubbleDistance=Infinity;
     for(const candidate of this.toyTaps) {
       if(!this.toyVisible(candidate))continue;
       const hit=this.toyHit(candidate);
       if(!hit)continue;
+      if(candidate.yieldsToToys){
+        if(hit.padded){if(hit.distance<padBubbleDistance){padBubble=candidate;padBubbleDistance=hit.distance;}}
+        else if(hit.distance<bubbleDistance){bubble=candidate;bubbleDistance=hit.distance;}
+        continue;
+      }
       if(hit.padded){
         if(candidate.yieldsToJelly){if(hit.distance<padSoftDistance){padSoft=candidate;padSoftDistance=hit.distance;}}
         else if(hit.distance<padSolidDistance){padSolid=candidate;padSolidDistance=hit.distance;}
@@ -259,9 +267,12 @@ export class Input {
     const mesh=this.nearer(solid,solidDistance,soft,softDistance);
     if(jelly&&(!mesh.toy||mesh.toy.yieldsToJelly||jellyDistance<=mesh.distance))return {kind:'jelly',toy:null,hit:jelly};
     if(mesh.toy)return {kind:'toy',toy:mesh.toy,hit:null};
+    // A bubble in front of the sponge is closer, but the sponge was actually pressed.
+    if(bubble)return {kind:'toy',toy:bubble,hit:null};
     if(this.jellyNear())return {kind:'jelly',toy:null,hit:null};
     const pad=this.nearer(padSolid,padSolidDistance,padSoft,padSoftDistance);
     if(pad.toy)return {kind:'toy',toy:pad.toy,hit:null};
+    if(padBubble)return {kind:'toy',toy:padBubble,hit:null};
     return {kind:'floor',toy:null,hit:null};
   }
   private nearer(primary:ToyTap|null,primaryDistance:number,secondary:ToyTap|null,secondaryDistance:number) {

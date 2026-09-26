@@ -295,6 +295,23 @@ function releaseGrab() {
 }
 {
   input.clear();
+  const spongeMesh=new Mesh(new BoxGeometry(.06,.04,.04));
+  spongeMesh.position.set(-.25,.34,.05);
+  spongeMesh.updateMatrixWorld(true);
+  // Camera sits at (.16,.46,.52). This bubble is on that ray, in front of the sponge.
+  const bubbleMesh=new Mesh(new BoxGeometry(.06,.06,.06));
+  bubbleMesh.position.set(-.106,.382,.214);
+  bubbleMesh.updateMatrixWorld(true);
+  let sponge=0,blocked=0;
+  input.toyTaps.push({center:spongeMesh.position.clone(),radius:.05,object:spongeMesh,label:'sponge',yieldsToJelly:true,use:()=>{sponge++;}});
+  input.toyTaps.push({center:bubbleMesh.position.clone(),radius:.05,object:bubbleMesh,label:'bubble',yieldsToToys:true,use:()=>{blocked++;}});
+  const pixel=project(-.25,.34,.05);
+  tap(pixel.x,pixel.y);
+  assert.equal(blocked,0,'a bubble between the camera and the sponge does not steal the press');
+  assert.equal(sponge,1,'a press on the sponge centre picks the sponge through a bubble');
+}
+{
+  input.clear();
   input.onTapJelly=()=>{hits.jelly++;};
   hits.jelly=0;
   const spot=body.center.clone();
